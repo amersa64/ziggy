@@ -88,3 +88,25 @@ def test_ingest_all_refuses_to_build_a_universe_without_prices(isolated_cfg, mon
     monkeypatch.setattr(pipe, "ingest_benchmarks", lambda *a, **k: (pd.DataFrame(), pd.DataFrame()))
     with pytest.raises(RuntimeError, match="no price data"):
         pipe.ingest_all(isolated_cfg)
+
+
+def test_extracted_text_is_persisted_for_downstream_use(isolated_cfg, normalised_filings, monkeypatch):
+    """Experiment 2 reads the documents; it must not have to re-fetch them."""
+    monkeypatch.setattr(sec, "fetch_filing_text", lambda f, cik, acc, doc: "material impairment charge")
+    store = Store(isolated_cfg)
+    pipe.ingest_documents(isolated_cfg, store, normalised_filings, force=True)
+
+    assert store.exists("interim", "filing_text")
+    txt = store.read("interim", "filing_text")
+    assert len(txt) == 3
+    assert {"accession", "cik", "form_base", "accepted_at", "source_url", "text"}.issubset(txt.columns)
+    assert txt["text"].str.contains("impairment").all()
+    assert txt["source_url"].str.startswith("https://www.sec.gov/").all()
+
+
+def test_text_persistence_can_be_switched_off(isolated_cfg, normalised_filings, monkeypatch):
+    isolated_cfg.raw["sec"]["persist_text"] = False
+    monkeypatch.setattr(sec, "fetch_filing_text", lambda *a: "some text")
+    store = Store(isolated_cfg)
+    pipe.ingest_documents(isolated_cfg, store, normalised_filings, force=True)
+    assert not store.exists("interim", "filing_text")

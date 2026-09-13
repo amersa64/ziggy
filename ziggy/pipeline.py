@@ -162,11 +162,23 @@ def ingest_documents(cfg, store: Store, filings: pd.DataFrame, force: bool = Fal
                 texts.append({"accession": acc, "text": txt})
     if not texts:
         return pd.DataFrame()
+    # `ticker` is attached later, at the event stage, so it may or may not be
+    # present here depending on the caller.
+    meta = ["accession", "cik", "ticker", "form_base", "accepted_at", "items",
+            "source_url", "size"]
     td = pd.DataFrame(texts).merge(
-        cand[["accession", "cik", "form_base", "accepted_at"]], on="accession", how="left"
+        cand[[c for c in meta if c in cand.columns]], on="accession", how="left"
     )
     feats = compute_text_novelty(td)
     store.write(feats, "interim", "text_features")
+
+    # Persist the extracted text itself, not only the features derived from it.
+    # Experiment 2's whole job is to read these documents; handing it a cosine
+    # distance and a URL would make it re-fetch everything this run already has.
+    if cfg.sec.get("persist_text", True):
+        keep = ["accession", "cik", "ticker", "form_base", "accepted_at", "items",
+                "source_url", "size", "text"]
+        store.write(td[[c for c in keep if c in td.columns]], "interim", "filing_text")
     return feats
 
 

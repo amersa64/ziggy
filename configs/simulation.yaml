@@ -45,6 +45,7 @@ sec:
   use_form345_datasets: true
   fetch_documents: false
   document_budget: 30000
+  persist_text: true
 market:
   provider: csv
   fallback_providers:

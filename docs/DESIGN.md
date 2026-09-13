@@ -148,7 +148,11 @@ shortlist without re-deriving it:
   its split, and its realised outcome.
 - `interim/events.parquet` — the underlying disclosure cluster for each
   `(snapshot, ticker)`, including item codes, item families, accession numbers
-  and a URL to the primary document, so a reasoning agent can go read the source.
+  and a URL to the primary document.
+- `interim/filing_text.parquet` — the extracted text of every document fetched,
+  keyed by accession and carrying its acceptance instant and source URL. The
+  downstream agent's entire job is to read these; handing it a cosine distance
+  and a link would make it re-fetch everything this run already has.
 - `artifacts/manifest.json` — the provenance record: config, splits, feature
   list, audit results, selection basis, and how many times the holdout was
   touched.

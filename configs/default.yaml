@@ -46,6 +46,9 @@ sec:
   # lose only the three text features.
   fetch_documents: true
   document_budget: 30000
+  # Keep the extracted text, not only the novelty features derived from it:
+  # the downstream reasoning agent's entire job is to read these documents.
+  persist_text: true
 
 market:
   # stooq_bulk is preferred: one archive for the whole US market, and it retains
