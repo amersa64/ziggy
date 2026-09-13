@@ -88,3 +88,48 @@ def test_ties_are_broken_randomly_not_alphabetically():
     c = per_session_metrics(d, "score", "label", "mag", [10], seed=1)["precision"].iloc[0]
     assert a == c            # same seed reproduces
     assert (a, b) != (1.0, 1.0)  # and does not systematically pick the winners
+
+
+def test_univariate_lift_matches_the_reference_metric(scored):
+    """The fast path must agree exactly with per_session_metrics."""
+    from ziggy.evaluate import univariate_lift
+
+    u = univariate_lift(scored, ["informative", "noise"], "label", "mag", 20, seed=7)
+    ref = float(per_session_metrics(scored.assign(_f=scored["informative"]),
+                                    "_f", "label", "mag", [20], seed=7)["lift"].mean())
+    assert u.set_index("feature").loc["informative", "lift_high"] == pytest.approx(ref, rel=1e-9)
+
+
+def test_univariate_lift_ranks_an_informative_feature_above_noise(scored):
+    from ziggy.evaluate import univariate_lift
+
+    u = univariate_lift(scored, ["informative", "noise"], "label", "mag", 20, seed=7)
+    assert u["feature"].iloc[0] == "informative"
+    assert u.set_index("feature").loc["noise", "best_lift"] < 1.3
+
+
+def test_univariate_lift_finds_two_sided_signals_via_extremeness():
+    rng = np.random.default_rng(11)
+    rows = []
+    for s in pd.bdate_range("2021-01-04", "2021-12-31"):
+        n = 250
+        two_sided = rng.normal(size=n)
+        rows.append(pd.DataFrame({"session": s, "two_sided": two_sided}))
+    d = pd.concat(rows, ignore_index=True)
+    # magnitude depends on |two_sided|, so neither direction alone captures it
+    d["mag"] = np.abs(rng.normal(0, 0.02, len(d))) + 0.03 * d["two_sided"].abs()
+    d["label"] = (d.groupby("session")["mag"].rank(pct=True) > 0.9).astype(float)
+
+    from ziggy.evaluate import univariate_lift
+
+    r = univariate_lift(d, ["two_sided"], "label", "mag", 20, seed=3).iloc[0]
+    assert r["direction"] == "extreme"
+    assert r["lift_extreme"] > max(r["lift_high"], r["lift_low"]) + 0.5
+
+
+def test_univariate_lift_skips_features_with_no_coverage(scored):
+    from ziggy.evaluate import univariate_lift
+
+    d = scored.assign(constant=1.0, mostly_missing=np.nan)
+    u = univariate_lift(d, ["informative", "constant", "mostly_missing"], "label", "mag", 20)
+    assert set(u["feature"]) == {"informative"}

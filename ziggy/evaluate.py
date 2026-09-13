@@ -253,6 +253,35 @@ def permutation_null(
     }
 
 
+def _fast_lift_machinery(d: pd.DataFrame, label_col: str, k: int, seed: int):
+    """Precompute the per-session bookkeeping shared by every candidate ranking.
+
+    Ranking 150 features in three orientations each means ~450 rankings of the
+    same panel. Sorting the panel 450 times with pandas is minutes; one lexsort
+    and two bincounts per ranking is seconds.
+    """
+    rng = np.random.default_rng(seed)
+    codes, _ = pd.factorize(d["session"], sort=True)
+    n_sessions = codes.max() + 1 if len(codes) else 0
+    counts = np.bincount(codes, minlength=n_sessions)
+    offsets = np.repeat(np.concatenate([[0], np.cumsum(counts)[:-1]]), counts)
+    lab = d[label_col].to_numpy(dtype=float)
+    base = np.bincount(codes, weights=lab, minlength=n_sessions) / np.maximum(counts, 1)
+    jitter = rng.random(len(d))
+
+    def lift_of(values: np.ndarray) -> float:
+        order = np.lexsort((jitter, -np.asarray(values, dtype=float), codes))
+        pos = np.arange(len(d)) - offsets
+        rows = order[pos < k]
+        rc = codes[rows]
+        hits = np.bincount(rc, weights=lab[rows], minlength=n_sessions)
+        cnt = np.bincount(rc, minlength=n_sessions).astype(float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return float(np.nanmean((hits / cnt) / base))
+
+    return lift_of, codes
+
+
 def univariate_lift(
     df: pd.DataFrame,
     feature_cols: list[str],
@@ -262,7 +291,7 @@ def univariate_lift(
     seed: int = 0,
     min_coverage: float = 0.02,
 ) -> pd.DataFrame:
-    """Lift of ranking on each single feature, in its better direction.
+    """Lift of ranking on each single feature, in its most favourable direction.
 
     Diagnostic, not a model: it says which individual signals carry information
     about consequential activity, which is exactly what the downstream reasoning
@@ -274,7 +303,10 @@ def univariate_lift(
     base = df[["session", label_col, magnitude_col]].dropna()
     if base.empty:
         return pd.DataFrame()
+    base = base.sort_values("session", kind="stable")
     idx = base.index
+    lift_of, codes = _fast_lift_machinery(base, label_col, k, seed)
+
     rows = []
     for c in feature_cols:
         col = df.loc[idx, c]
@@ -282,22 +314,16 @@ def univariate_lift(
         if coverage < min_coverage or col.nunique(dropna=True) < 3:
             continue
         filled = col.fillna(col.median())
-        d = base.assign(_f=filled)
-
-        def lift_of(values) -> float:
-            d["_f"] = values
-            return float(
-                per_session_metrics(d, "_f", label_col, magnitude_col, [k], seed=seed)["lift"].mean()
-            )
-
-        hi = lift_of(filled)
-        lo = lift_of(-filled)
+        v = filled.to_numpy(dtype=float)
+        hi, lo = lift_of(v), lift_of(-v)
         # The label is an *absolute* move, so a feature can matter through its
         # extremeness rather than its sign -- both tails of a valuation or flow
         # measure can precede a large move. Ranking on within-day distance from
         # the median catches that, and sign-directional features lose nothing.
-        centred = filled.groupby(base["session"]).transform(lambda x: (x - x.median()).abs())
-        ex = lift_of(centred)
+        # "median" is a cython groupby path; a Python lambda here costs more
+        # than every lexsort in this function combined.
+        med = pd.Series(v).groupby(codes).transform("median").to_numpy()
+        ex = lift_of(np.abs(v - med))
         scores = {"high": hi, "low": lo, "extreme": ex}
         direction = max(scores, key=scores.get)
         rows.append({"feature": c, "best_lift": scores[direction], "direction": direction,
