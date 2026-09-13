@@ -159,6 +159,19 @@ Nine naive baselines, chosen to be the ones a sceptic would actually propose —
 including `inverse_liquidity` and `prior_abs_move`, which are strong enough that
 a weak model can easily lose to them.
 
+### Two questions, not one
+
+The primary experiment asks whether the ranking finds more consequential
+activity than a naive baseline. But an absolute-magnitude label can be answered
+by a volatility ranker, so the evidence package also runs a **secondary
+experiment**: the same rankers refit on the volatility-normalised label, where
+"just pick the jumpy names" is worth less than nothing.
+
+The pairing is what makes the result interpretable. A model that wins the
+primary and loses the secondary has found volatility. One that wins both has
+found something about situations. Reporting only the first would let a
+volatility ranker pass as a disclosure model.
+
 ### Metrics
 
 Computed per snapshot then averaged, so a handful of huge days cannot carry the

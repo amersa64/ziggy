@@ -68,6 +68,15 @@ Reading the two together is the point. A ranker that wins on the absolute label
 and not the normalised one has found volatility. A ranker that wins on both has
 found something about situations.
 
+And reporting that comparison is necessary but not sufficient. If the primary
+model scores poorly on the normalised label, that says the *model* failed the
+harder test — not that the *features* would. Those are different claims, and
+conflating them would let the report imply there is nothing beyond volatility
+in the data when nobody ever looked. So the experiment includes a secondary
+run: the same rankers refit **on** the normalised label, evaluated against the
+same nine baselines. Frozen-train only — it is a secondary question and does
+not get the compute budget or the selection authority of the primary one.
+
 ## Why the deterministic scorer exists
 
 A fitted model that beats the baselines is a weaker result than it looks unless
