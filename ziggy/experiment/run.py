@@ -39,7 +39,7 @@ def _score_frame(matrix: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
 
 
 def _secondary_label_experiment(
-    cfg, matrix, ranked, scored, splits, feat_cols, label, mag, ks, primary_k, seed,
+    cfg, matrix, ranked, scored, feat_cols, label, mag, ks, primary_k, seed,
     n_boot, block,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Repeat the selection against a second label definition.
@@ -287,7 +287,7 @@ def run_experiment(cfg, matrix: pd.DataFrame | None = None) -> dict:
 
     # -- secondary experiment: can it find anything beyond volatility? --------
     sec_summary, sec_comparison = _secondary_label_experiment(
-        cfg, matrix, ranked, scored, splits, feat_cols,
+        cfg, matrix, ranked, scored, feat_cols,
         "label_cs_q90_volnorm", "consequence_magnitude_volnorm",
         ks, primary_k, seed, n_boot, block,
     )
