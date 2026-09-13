@@ -20,6 +20,11 @@ Consequential-activity definitions (all reported; ``cs_q90`` is primary):
     ``|excess move|`` above a fixed threshold calibrated on the *training* split
     only. Regime-sensitive on purpose: it answers "did we find real moves",
     not "did we find relatively large ones".
+``cs_q90_abret``
+    The same rule on the *beta-adjusted* excess move. Plain excess penalises
+    low-beta names, whose residual against the benchmark contains a chunk of
+    market move that has nothing to do with them; this removes it.
+
 ``cs_q90_volnorm``
     The same top-decile rule applied to ``|excess move| / the name's own expected
     move``. This matters: an absolute-magnitude label is partly satisfiable by
@@ -176,6 +181,31 @@ def add_consequence_labels(
         out = add_volnorm_label(out, cfg, vol_col="_trailing_vol_21d")
         out = out.drop(columns=["_trailing_vol_21d"])
 
+    out = add_beta_adjusted_label(out, cfg)
+
+    return out
+
+
+def add_beta_adjusted_label(df: pd.DataFrame, cfg) -> pd.DataFrame:
+    """Top-decile label on the *beta-adjusted* excess move.
+
+    Plain excess (stock minus benchmark) quietly penalises low-beta names: a
+    0.6-beta stock carries a residual of 0.4x the market move that has nothing
+    to do with the stock. In a volatile stretch that alone can push large,
+    low-beta names up the |excess| ranking, which is why "rank by size" can
+    score above chance on the plain label. Subtracting beta times the benchmark
+    -- with the beta that was estimable at the snapshot -- removes it.
+    """
+    h = int(cfg.labels["primary_horizon"])
+    q = float(cfg.labels["consequential"]["cross_sectional_quantile"])
+    col = f"fwd_abret_{h}d"
+    if col not in df.columns:
+        return df
+    out = df
+    out["consequence_magnitude_abret"] = out[col].abs().astype("float32")
+    g = out.groupby("session", observed=True)["consequence_magnitude_abret"]
+    out["label_cs_q90_abret"] = (g.rank(pct=True, na_option="keep") > q).astype("float32")
+    out.loc[out["consequence_magnitude_abret"].isna(), "label_cs_q90_abret"] = np.nan
     return out
 
 

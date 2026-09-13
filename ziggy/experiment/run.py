@@ -24,7 +24,7 @@ import pandas as pd
 
 from ziggy import audit, evaluate
 from ziggy.features.assemble import cross_sectional_rank, feature_columns
-from ziggy.labels import add_volnorm_label, calibrate_abs_threshold
+from ziggy.labels import add_beta_adjusted_label, add_volnorm_label, calibrate_abs_threshold
 from ziggy.rank import baselines as bl
 from ziggy.rank.models import build_ranker, walk_forward_scores
 from ziggy.splits import make_splits
@@ -56,6 +56,8 @@ def run_experiment(cfg, matrix: pd.DataFrame | None = None) -> dict:
     # file does not need rebuilding to gain the volatility-normalised label.
     if "label_cs_q90_volnorm" not in matrix.columns:
         matrix = add_volnorm_label(matrix.copy(), cfg)
+    if "label_cs_q90_abret" not in matrix.columns:
+        matrix = add_beta_adjusted_label(matrix.copy(), cfg)
 
     feat_cols = feature_columns(matrix)
     fwd_audit = audit.forward_column_audit(feat_cols)
@@ -82,7 +84,8 @@ def run_experiment(cfg, matrix: pd.DataFrame | None = None) -> dict:
     log.info("absolute |excess| threshold from train split: %.4f", abs_thr)
 
     carry = [label_col, "label_abs", mag_col, "label_vol_expansion",
-             "label_cs_q90_volnorm", "consequence_magnitude_volnorm"]
+             "label_cs_q90_volnorm", "consequence_magnitude_volnorm",
+             "label_cs_q90_abret", "consequence_magnitude_abret"]
     scored = matrix[["session", "ticker", "split"] + [c for c in carry if c in matrix.columns]].copy()
 
     # -- baselines -------------------------------------------------------------
@@ -187,6 +190,7 @@ def run_experiment(cfg, matrix: pd.DataFrame | None = None) -> dict:
     robustness = []
     alt_labels = [
         ("label_abs", mag_col),
+        ("label_cs_q90_abret", "consequence_magnitude_abret"),
         # The volatility-normalised label is scored against its own magnitude so
         # that capture and NDCG stay internally consistent.
         ("label_cs_q90_volnorm", "consequence_magnitude_volnorm"),

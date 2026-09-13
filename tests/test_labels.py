@@ -130,3 +130,39 @@ def test_volnorm_label_can_be_derived_from_a_built_matrix(cfg):
     out = add_volnorm_label(df, cfg)
     assert out["label_cs_q90_volnorm"].sum() == 2
     assert out["consequence_magnitude_volnorm"].iloc[-1] > out["consequence_magnitude_volnorm"].iloc[0]
+
+
+def test_beta_adjustment_removes_the_low_beta_penalty(cfg):
+    """Plain excess flatters low-beta names; beta adjustment must not.
+
+    A low-beta stock's residual against the benchmark contains a chunk of market
+    move that has nothing to do with the stock, which can push it up the
+    |excess| ranking during a volatile stretch. This builds exactly that
+    situation -- pure-beta names with no idiosyncratic move at all -- and checks
+    that the plain label ranks them by |1 - beta| while the adjusted one does not.
+    """
+    from ziggy.labels import add_beta_adjusted_label
+
+    rng = np.random.default_rng(31)
+    n_days, n_names = 200, 60
+    betas = np.linspace(0.3, 1.8, n_names)
+    mkt = rng.normal(0, 0.015, n_days)
+    rows = []
+    for i, b in enumerate(betas):
+        rows.append(pd.DataFrame({
+            "session": np.arange(n_days), "ticker": f"T{i:02d}", "beta": b,
+            # no idiosyncratic component whatsoever
+            "fwd_ret_5d": b * mkt, "fwd_exret_5d": (b - 1.0) * mkt,
+            "fwd_abret_5d": np.zeros(n_days),
+        }))
+    d = pd.concat(rows, ignore_index=True)
+    d["consequence_magnitude"] = d["fwd_exret_5d"].abs()
+    d = add_beta_adjusted_label(d, cfg)
+
+    # Plain excess: |1 - beta| fully determines the magnitude ranking.
+    per_name = d.groupby("ticker").agg(dist=("beta", lambda s: abs(float(s.iloc[0]) - 1.0)),
+                                       mag=("consequence_magnitude", "mean"))
+    assert per_name["dist"].corr(per_name["mag"]) > 0.95
+
+    # Beta-adjusted: nothing left to rank, because nothing idiosyncratic happened.
+    assert float(d["consequence_magnitude_abret"].abs().max()) == 0.0
