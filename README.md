@@ -118,6 +118,12 @@ Entry is the **open of the session after the snapshot**; exit is the close of
   set", with no regime drift in the denominator.
 - `abs` — `|excess move|` above a threshold **calibrated on the training split
   only**.
+- `cs_q90_abret` — the same rule on the **beta-adjusted** excess move. Plain
+  excess (stock minus benchmark) leaves a low-beta name carrying `(1 - beta)`
+  times the market move as apparent idiosyncratic activity, which in a volatile
+  stretch is enough to push large, low-beta names up the `|excess|` ranking —
+  visible as the "just rank the biggest names" baseline scoring above chance
+  when it should not.
 - `cs_q90_volnorm` — the same rule applied to `|excess move| / the name's own
   expected move`. An absolute-magnitude label is partly satisfiable by ranking on
   trailing volatility (volatile names move more, by definition); normalising

@@ -64,7 +64,21 @@ retrieval, and direction is Experiment 2's problem — but it must not be read a
 a trading result. Nothing here models transaction costs, borrow availability,
 short-sale constraints, capacity or market impact.
 
-## 6. Macro vintages are sampled, not exhaustive
+## 6. The primary label's benchmark adjustment is unconditional
+
+The primary label subtracts the benchmark's return one-for-one rather than
+`beta x benchmark`. That is the conventional definition and it keeps the label
+free of any estimated quantity, but it means a low-beta name's "excess" contains
+`(1 - beta)` times the market move, which is not idiosyncratic at all. The
+symptom is visible in the results: the `liquidity` baseline — rank by size —
+scores slightly above chance on the plain label, which should not happen when
+large names are the least volatile.
+
+`cs_q90_abret` is reported alongside it for exactly this reason. It uses the
+beta estimable at the snapshot, so it swaps an unconditional definition for one
+that depends on an estimate; neither is strictly better and both are shown.
+
+## 7. Macro vintages are sampled, not exhaustive
 
 Revisable series are pulled as dated ALFRED vintages at a fixed cadence
 (`macro.vintage_cadence_days`). Between vintage dates the snapshot sees the most
@@ -72,7 +86,7 @@ recent vintage it could have seen, which is correct, but a release landing
 mid-cadence is picked up slightly late. The direction of this error is
 conservative — the pipeline knows *less* than it could have, never more.
 
-## 7. Acceptance-time fallback for old filings
+## 8. Acceptance-time fallback for old filings
 
 Filings without an `acceptanceDateTime` fall back to 17:30 ET on the filing
 date. That is the conservative (latest plausible) assumption and it is flagged
@@ -81,7 +95,7 @@ per row via `accepted_at_imputed`, but it is an assumption.
 Form 345 structured datasets carry a filing *date* rather than an acceptance
 instant, so insider features use the same conservative 17:30 ET convention.
 
-## 8. Document-text coverage is budgeted
+## 9. Document-text coverage is budgeted
 
 Textual novelty requires downloading filing documents. The budget
 (`sec.document_budget`) is spent on the largest filings of each form, on the
@@ -90,7 +104,7 @@ therefore missing for many small filings and the missingness is not random.
 Models see this as absent values rather than zeros; the deterministic scorer
 simply drops the weighted features it cannot find.
 
-## 9. Multiple comparisons
+## 10. Multiple comparisons
 
 Several rankers, several `k`, several label definitions and several splits are
 reported. The holdout headline is a **single** pre-committed combination (model
@@ -98,7 +112,7 @@ selected on validation, primary `k`, primary label); everything else is reported
 as supporting detail, not as a family of independent tests. Readers should treat
 the secondary numbers as descriptive.
 
-## 10. One market, one era
+## 11. One market, one era
 
 US equities, 2021 onwards. That window contains a meme-stock episode, a rate
 shock, a bear market and a recovery — several regimes, but one market and one
