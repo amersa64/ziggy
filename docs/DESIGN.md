@@ -98,6 +98,23 @@ observations and produce confidence intervals roughly `sqrt(block)` times too
 narrow. The stationary block bootstrap resamples runs of ~10 consecutive
 sessions, which preserves that dependence.
 
+## The snapshot window spans a whole trading session
+
+A 20:00 ET snapshot sees everything published since 20:00 ET the previous day —
+which includes one complete trading session. That window contains two very
+different kinds of disclosure:
+
+- accepted **after** today's 16:00 close: the market has not traded on it, and
+  the next session's open is the first opportunity to react;
+- accepted **before or during** today's session: the market has already had
+  hours to price it, so the snapshot is partly looking at a *reaction*, not at
+  news.
+
+`sec_minutes_past_close` is signed precisely so a ranker can separate these,
+and `sec_after_hours` / `sec_before_open` make the split explicit. Collapsing
+them — treating "filed today" as one thing — would blur the most actionable
+distinction in the whole feature set.
+
 ## Why events are clustered
 
 A company that files an 8-K, a 10-Q and six Form 4s on the same evening is one

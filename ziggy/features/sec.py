@@ -95,7 +95,15 @@ def compute_event_features(events: pd.DataFrame, filings: pd.DataFrame) -> pd.Da
     for fam in TRACKED_FAMILIES:
         ev[f"sec_item_{fam}"] = fams.str.contains(rf"(?:^|\|){fam}(?:\||$)", regex=True).astype("float32")
 
-    # Timing within the snapshot window: minutes past the 16:00 ET close.
+    # Timing within the snapshot window, which is the most under-appreciated
+    # feature here. The window runs from 20:00 ET yesterday to 20:00 ET today,
+    # so it spans one entire trading session:
+    #   * accepted after today's 16:00 close  -> the market has NOT traded on it;
+    #     the next session's open is the first chance to react;
+    #   * accepted before or during today's session -> the market has already
+    #     had hours to price it, and the snapshot is looking at a reaction as
+    #     much as at news.
+    # Minutes past the close is signed so a model can separate the two cases.
     acc_et = pd.to_datetime(ev["last_accepted_at"], utc=True).dt.tz_convert("America/New_York")
     minutes = acc_et.dt.hour * 60 + acc_et.dt.minute
     ev["sec_minutes_past_close"] = (minutes - 16 * 60).astype("float32")
