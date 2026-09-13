@@ -266,9 +266,13 @@ ziggy/
   events.py         filings → (snapshot, ticker) event clusters
   labels.py         the only module allowed to look forward
   splits.py         chronological splits with embargo
-  evaluate.py       metrics, block bootstrap, permutation null
+  evaluate.py       metrics, block bootstrap, permutation null, univariate lift
   audit.py          leakage / timestamp / survivorship audits
+  shortlist.py      the product: top-k for one snapshot, with evidence
   simulate.py       synthetic point-in-time corpus (positive control)
+  sources.py        reachability probe for the external data hosts
+  pipeline.py       ingestion and dataset construction
+  cli.py            ingest · build · experiment · report · shortlist · simulate
   providers/        sec_edgar · market · macro · news (interface only)
   features/         price · sec · text · macro · assemble
   rank/             baselines · models
@@ -276,6 +280,8 @@ ziggy/
   report/           evidence package
 configs/            default.yaml · simulation.yaml
 tests/              calendar · no-lookahead · labels · evaluation · PIT integrity
+                    · providers · pipeline · text · shortlist · splits & models
+docs/               DESIGN.md · LIMITATIONS.md
 ```
 
 ## What this repository does not claim
