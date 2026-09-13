@@ -43,8 +43,12 @@ sec:
   document_budget: 60000
 
 market:
-  provider: "stooq"          # stooq | yahoo | csv
-  fallback_providers: ["yahoo"]
+  # stooq_bulk is preferred: one archive for the whole US market, and it retains
+  # history for many delisted symbols. stooq per-ticker and yahoo are fallbacks;
+  # yahoo carries dividend-adjusted closes but drops delisted names entirely,
+  # which is a survivorship hole the report must then declare.
+  provider: "stooq_bulk"     # stooq_bulk | stooq | yahoo | csv
+  fallback_providers: ["stooq", "yahoo"]
   benchmarks: ["SPY", "QQQ", "IWM"]
   vix_symbol: "^VIX"
   price_field: "adj_close"

@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 
 from ziggy import audit, evaluate
-from ziggy.features.assemble import feature_columns
+from ziggy.features.assemble import cross_sectional_rank, feature_columns
 from ziggy.labels import calibrate_abs_threshold
 from ziggy.rank import baselines as bl
 from ziggy.rank.models import build_ranker, walk_forward_scores
@@ -59,6 +59,12 @@ def run_experiment(cfg, matrix: pd.DataFrame | None = None) -> dict:
         raise AssertionError(f"label-like columns reached the feature set: {fwd_audit}")
     log.info("features available to the ranker: %d", len(feat_cols))
 
+    # Every ranker consumes the same within-day percentile ranks; computing them
+    # once here turns the most expensive step in the run into a single pass.
+    t_rank = time.time()
+    ranked = cross_sectional_rank(matrix, feat_cols)
+    log.info("cross-sectional ranks computed in %.1fs", time.time() - t_rank)
+
     sessions = pd.DatetimeIndex(sorted(matrix["session"].unique()))
     splits = make_splits(sessions, cfg)
     matrix = matrix.copy()
@@ -89,10 +95,10 @@ def run_experiment(cfg, matrix: pd.DataFrame | None = None) -> dict:
         ranker = build_ranker(name, seed=seed)
         if ranker.needs_fit:
             tr = matrix[(matrix["split"] == "train") & matrix[label_col].notna()]
-            ranker.fit(tr, feat_cols, label_col)
+            ranker.fit(tr, feat_cols, label_col, ranked=ranked)
             fit_log[name] = {"mode": "frozen_train", "train_rows": int(len(tr)),
                              "train_sessions": int(tr["session"].nunique())}
-        scored[f"score_{name}"] = ranker.score(matrix, feat_cols).values
+        scored[f"score_{name}"] = ranker.score(matrix, feat_cols, ranked=ranked).values
         imp = ranker.importances()
         if imp is not None:
             importances[name] = imp
@@ -102,7 +108,7 @@ def run_experiment(cfg, matrix: pd.DataFrame | None = None) -> dict:
             s, rows = walk_forward_scores(
                 name, matrix, feat_cols, label_col, wf_sessions,
                 min_train_sessions=int(cfg.ranking["walk_forward"]["min_train_sessions"]),
-                seed=seed,
+                seed=seed, ranked=ranked,
             )
             scored[f"score_{name}_wf"] = s.values
             fit_log[f"{name}_wf"] = {"mode": "walk_forward", "refits": rows}

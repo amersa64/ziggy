@@ -83,10 +83,12 @@ class Ranker(ABC):
     needs_fit = False
 
     @abstractmethod
-    def score(self, df: pd.DataFrame, feature_cols: list[str]) -> pd.Series:
+    def score(self, df: pd.DataFrame, feature_cols: list[str],
+              ranked: pd.DataFrame | None = None) -> pd.Series:
         ...
 
-    def fit(self, df: pd.DataFrame, feature_cols: list[str], label_col: str) -> "Ranker":
+    def fit(self, df: pd.DataFrame, feature_cols: list[str], label_col: str,
+            ranked: pd.DataFrame | None = None) -> "Ranker":
         return self
 
     def importances(self) -> pd.DataFrame | None:
@@ -99,13 +101,17 @@ class DeterministicScorer(Ranker):
     def __init__(self, weights: dict[str, float] | None = None):
         self.weights = dict(weights or DETERMINISTIC_WEIGHTS)
 
-    def score(self, df: pd.DataFrame, feature_cols: list[str]) -> pd.Series:
+    def score(self, df: pd.DataFrame, feature_cols: list[str],
+              ranked: pd.DataFrame | None = None) -> pd.Series:
         cols = [c for c in self.weights if c in df.columns]
         missing = [c for c in self.weights if c not in df.columns]
         if missing:
             log.info("deterministic scorer: %d weighted features absent (%s...)",
                      len(missing), ", ".join(missing[:4]))
-        ranks = cross_sectional_rank(df, cols) - 0.5
+        if ranked is not None and all(c in ranked.columns for c in cols):
+            ranks = ranked.loc[df.index, cols] - 0.5
+        else:
+            ranks = cross_sectional_rank(df, cols) - 0.5
         w = pd.Series({c: self.weights[c] for c in cols})
         return (ranks[cols] * w).sum(axis=1)
 
@@ -125,15 +131,25 @@ class _SkRanker(Ranker):
         self.model = None
         self.cols: list[str] = []
 
-    def _prep(self, df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    def _prep(self, df: pd.DataFrame, cols: list[str],
+              ranked: pd.DataFrame | None = None) -> pd.DataFrame:
+        """Within-day percentile ranks, reusing a precomputed view when given.
+
+        Ranking 150 columns over a couple of million rows is the single most
+        expensive operation in the experiment, and every ranker wants the same
+        answer -- so the caller computes it once and passes it down.
+        """
+        if ranked is not None and all(c in ranked.columns for c in cols):
+            return ranked.loc[df.index, cols]
         return cross_sectional_rank(df, cols)
 
-    def fit(self, df: pd.DataFrame, feature_cols: list[str], label_col: str) -> "_SkRanker":
+    def fit(self, df: pd.DataFrame, feature_cols: list[str], label_col: str,
+            ranked: pd.DataFrame | None = None) -> "_SkRanker":
         sub = df[df[label_col].notna()]
         if sub.empty:
             raise ValueError("no labelled training rows")
         self.cols = list(feature_cols)
-        X = self._prep(sub, self.cols)
+        X = self._prep(sub, self.cols, ranked)
         y = sub[label_col].astype(int).values
         self.model = self._make()
         self.model.fit(X.values, y)
@@ -141,10 +157,11 @@ class _SkRanker(Ranker):
                  self.name, len(sub), len(self.cols), y.mean())
         return self
 
-    def score(self, df: pd.DataFrame, feature_cols: list[str]) -> pd.Series:
+    def score(self, df: pd.DataFrame, feature_cols: list[str],
+              ranked: pd.DataFrame | None = None) -> pd.Series:
         if self.model is None:
             raise RuntimeError(f"{self.name} used before fit")
-        X = self._prep(df, self.cols)
+        X = self._prep(df, self.cols, ranked)
         return pd.Series(self.model.predict_proba(X.values)[:, 1], index=df.index)
 
     def _make(self):
@@ -193,6 +210,7 @@ def walk_forward_scores(
     eval_sessions: pd.DatetimeIndex,
     min_train_sessions: int = 250,
     seed: int = 0,
+    ranked: pd.DataFrame | None = None,
 ) -> tuple[pd.Series, list[dict]]:
     """Refit once per calendar year on strictly prior data, then score that year.
 
@@ -210,8 +228,8 @@ def walk_forward_scores(
                              "train_sessions": int(train["session"].nunique())})
             continue
         r = build_ranker(ranker_name, seed=seed)
-        r.fit(train, feature_cols, label_col)
-        scores.loc[chunk.index] = r.score(chunk, feature_cols).values
+        r.fit(train, feature_cols, label_col, ranked=ranked)
+        scores.loc[chunk.index] = r.score(chunk, feature_cols, ranked=ranked).values
         log_rows.append({
             "year": int(year), "status": "fitted",
             "train_sessions": int(train["session"].nunique()),

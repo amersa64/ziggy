@@ -48,6 +48,7 @@ sec:
 market:
   provider: csv
   fallback_providers:
+  - stooq
   - yahoo
   benchmarks:
   - SPY

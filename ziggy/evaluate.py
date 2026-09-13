@@ -208,20 +208,41 @@ def permutation_null(
 
     Under the null the ranking carries no information about which names moved,
     so lift must collapse to ~1.0. If it does not, something is leaking.
+
+    The shortlist itself never changes under the null -- only which labels sit
+    where -- so the top-k selection is computed once and each permutation is
+    three vectorised passes rather than a re-sort of the whole panel.
     """
     rng = np.random.default_rng(seed)
     d = df[["session", score_col, label_col, magnitude_col]].dropna()
-    observed = per_session_metrics(d, score_col, label_col, magnitude_col, [k], seed=seed)
-    obs_lift = float(observed["lift"].mean())
-    null = []
+    if d.empty:
+        return {"observed_lift": np.nan, "null_mean": np.nan, "null_std": np.nan,
+                "null_p95": np.nan, "p_value": np.nan, "n_permutations": 0}
+
+    d = d.assign(_tie=rng.random(len(d)))
+    d = d.sort_values(["session", score_col, "_tie"], ascending=[True, False, True])
+    codes, _ = pd.factorize(d["session"], sort=True)
+    within = np.arange(len(d)) - np.repeat(
+        np.concatenate([[0], np.cumsum(np.bincount(codes))[:-1]]), np.bincount(codes)
+    )
+    sel = within < k
+    lab = d[label_col].to_numpy(dtype=float)
+
+    n_per_session = np.bincount(codes).astype(float)
+    base = np.bincount(codes, weights=lab) / n_per_session
+    sel_counts = np.bincount(codes[sel], minlength=len(n_per_session)).astype(float)
+
+    def mean_lift(labels: np.ndarray) -> float:
+        hits = np.bincount(codes[sel], weights=labels[sel], minlength=len(n_per_session))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            lift = (hits / sel_counts) / base
+        return float(np.nanmean(lift))
+
+    obs_lift = mean_lift(lab)
+    null = np.empty(n_perm)
     for i in range(n_perm):
-        p = d.copy()
-        p[label_col] = p.groupby("session", observed=True)[label_col].transform(
-            lambda s: s.sample(frac=1.0, random_state=int(rng.integers(1e9))).to_numpy()
-        )
-        m = per_session_metrics(p, score_col, label_col, magnitude_col, [k], seed=seed + i)
-        null.append(float(m["lift"].mean()))
-    null = np.array(null)
+        order = np.lexsort((rng.random(len(d)), codes))   # shuffle within session
+        null[i] = mean_lift(lab[order])
     return {
         "observed_lift": obs_lift,
         "null_mean": float(null.mean()),

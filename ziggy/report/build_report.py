@@ -13,6 +13,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from ziggy.store import Store  # noqa: E402
@@ -127,9 +128,13 @@ def _md_table(df: pd.DataFrame, cols: list[str] | None = None, floatfmt: str = "
     if df is None or df.empty:
         return "_(no rows)_\n"
     d = df[cols] if cols else df
+
     def fmt(v):
-        if isinstance(v, float):
-            return floatfmt.format(v)
+        # numpy scalars are not instances of the builtin float.
+        if isinstance(v, (float, np.floating)):
+            return "n/a" if np.isnan(v) else floatfmt.format(float(v))
+        if isinstance(v, (int, np.integer)):
+            return str(int(v))
         return str(v)
     head = "| " + " | ".join(d.columns) + " |"
     sep = "| " + " | ".join(["---"] * len(d.columns)) + " |"
