@@ -189,6 +189,32 @@ Outputs land in `artifacts/`: `REPORT.md`, figures, `manifest.json` (the full
 provenance record — config, splits, features, audits, selection basis),
 `summary.parquet`, per-session metrics and baseline comparisons.
 
+### The product
+
+```bash
+python -m ziggy.cli shortlist --k 20            # latest snapshot
+python -m ziggy.cli shortlist --date 2025-11-04 --k 30 --json
+```
+
+```
+Shortlist for 2026-08-31 — ranked by gbm_wf
+
+  1. SIM1160  score +0.5130   8-K  [exhibits|results]
+     why: high-salience 8-K item; earnings/results item; unusual volume; filed something tonight
+     https://www.sec.gov/Archives/edgar/data/1001160/.../doc.htm
+  2. SIM0348  score +0.3713   8-K  [exhibits|results]
+     why: high-salience 8-K item; earnings/results item; unusual volume; smaller / less liquid name
+     https://www.sec.gov/Archives/edgar/data/1000348/.../doc.htm
+  3. SIM0162  score +0.3685   no filing
+     why: unusual volume; high trailing volatility; turnover well above its own average
+```
+
+Each row carries the disclosure that triggered it, a link to the source
+document, the market context, and a plain statement of which signals put it
+there. It stops short of an opinion: nothing here says the event is good or
+bad, priced or mispriced, or that anything should be traded. That is
+Experiment 2's job — this is the desk research pack it starts from.
+
 ### The simulation control
 
 `python -m ziggy.cli simulate --config configs/simulation.yaml` generates a
