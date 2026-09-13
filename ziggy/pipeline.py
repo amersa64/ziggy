@@ -199,10 +199,18 @@ def ingest_all(cfg, force: bool = False) -> dict:
     insider = ingest_insider(cfg, store, force)
     macro = ingest_macro(cfg, store, force)
 
+    # Documents last, and deliberately so: it is by far the longest-running step
+    # and everything else is already usable without it. A run interrupted here
+    # still produces a complete experiment, minus the text-novelty features.
+    text_feats = pd.DataFrame()
+    if cfg.sec.get("fetch_documents", True) and not filings_raw.empty:
+        normalised = sec.normalise_filings(filings_raw, cfg.sec["acceptance_timezone"])
+        text_feats = ingest_documents(cfg, store, normalised, force)
+
     return {
         "ticker_map": len(tm), "prices": len(prices), "universe": len(universe),
         "filings": len(filings_raw), "insider": len(insider), "macro": len(macro),
-        "benchmarks": len(bench), "vix": len(vix),
+        "benchmarks": len(bench), "vix": len(vix), "documents": len(text_feats),
     }
 
 
