@@ -5,7 +5,7 @@
 > end to end and acts as a positive control. **It is not evidence about real
 > markets.** See `REPORT.md` for the real-data run.
 
-_Generated 2026-09-13T05:55:57.205614+00:00 · config `configs/simulation.yaml` · runtime 883.6s_
+_Generated 2026-09-13T06:09:19.758254+00:00 · config `configs/simulation.yaml` · runtime 745.3s_
 
 ## The question
 
@@ -319,7 +319,12 @@ Weakest signals in the whole set:
 
 ## Reproduce
 
+Produced by commit `f98ea12b57df` on `claude/market-intelligence-pipeline-jbd0ro`, Python 3.11.15, pandas 3.0.5, numpy 2.4.6, scikit-learn 1.9.1, seed 20260913.
+
 ```bash
 pip install -r requirements.txt
-python -m ziggy.cli all --config configs/simulation.yaml
+python -m ziggy.cli simulate   --config configs/simulation.yaml
+python -m ziggy.cli build      --config configs/simulation.yaml
+python -m ziggy.cli experiment --config configs/simulation.yaml
+python -m ziggy.cli report     --config configs/simulation.yaml
 ```

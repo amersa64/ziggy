@@ -1,8 +1,20 @@
 {
   "experiment": "exp1_simulation_control",
-  "generated_at": "2026-09-13T05:55:57.205614+00:00",
-  "runtime_seconds": 883.6,
+  "generated_at": "2026-09-13T06:09:19.758254+00:00",
+  "runtime_seconds": 745.3,
   "config_path": "configs/simulation.yaml",
+  "seed": 20260913,
+  "provenance": {
+    "git_commit": "f98ea12b57df0d79bdda499832ed766746be5e88",
+    "git_branch": "claude/market-intelligence-pipeline-jbd0ro",
+    "git_dirty": false,
+    "python": "3.11.15",
+    "packages": {
+      "pandas": "3.0.5",
+      "numpy": "2.4.6",
+      "scikit-learn": "1.9.1"
+    }
+  },
   "snapshot_convention": "20:00 America/New_York",
   "period": {
     "start": "2021-01-01",
