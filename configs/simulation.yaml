@@ -44,7 +44,7 @@ sec:
   acceptance_timezone: America/New_York
   use_form345_datasets: true
   fetch_documents: false
-  document_budget: 60000
+  document_budget: 30000
 market:
   provider: csv
   fallback_providers:

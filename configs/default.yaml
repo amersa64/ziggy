@@ -38,9 +38,14 @@ sec:
   acceptance_timezone: "America/New_York"
   # Structured insider-transaction datasets (Form 3/4/5), quarterly zips.
   use_form345_datasets: true
-  # Optional: download primary 8-K documents for text-novelty features.
+  # Primary documents for text-novelty features. This is the longest step in
+  # ingestion by a wide margin (SEC fair access caps us at ~8 requests/second,
+  # so the budget below is roughly an hour). The budget is spent on the largest
+  # submissions first: a 400-byte 8-K has no text to be novel about. Raise it
+  # for a fuller text corpus; set fetch_documents false to skip it entirely and
+  # lose only the three text features.
   fetch_documents: true
-  document_budget: 60000
+  document_budget: 30000
 
 market:
   # stooq_bulk is preferred: one archive for the whole US market, and it retains
