@@ -153,6 +153,10 @@ shortlist without re-deriving it:
   keyed by accession and carrying its acceptance instant and source URL. The
   downstream agent's entire job is to read these; handing it a cosine distance
   and a link would make it re-fetch everything this run already has.
+- `artifacts/shortlist_<date>.json` — the finished product for one snapshot:
+  rank, ticker, score, a plain-language reason, the disclosure that triggered
+  it, its acceptance instant, the source URL, and the market context. This is
+  the object Experiment 2 actually consumes.
 - `artifacts/manifest.json` — the provenance record: config, splits, feature
   list, audit results, selection basis, and how many times the holdout was
   touched.
