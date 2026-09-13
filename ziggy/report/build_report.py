@@ -313,6 +313,11 @@ def build_report(cfg) -> Path:
         A(_md_table(store.read("artifacts", "by_year")))
     if figs.get("stability"):
         A(f"\n![stability]({figs['stability'].name})\n")
+        shown = [sp for sp in ("train", "validation", "holdout") if sp in per_session]
+        if "train" not in shown:
+            A("\nThe training period is absent from this chart because the selected model is "
+              "a walk-forward variant: it only ever scores a year it was not fitted on, so it "
+              "has no in-sample scores to plot. That is the point of it.\n")
     if store.exists("artifacts", "holdout_by_regime"):
         A("\n## By volatility regime (holdout)\n")
         A(_md_table(store.read("artifacts", "holdout_by_regime")))

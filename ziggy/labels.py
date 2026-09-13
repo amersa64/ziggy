@@ -195,6 +195,8 @@ def add_beta_adjusted_label(df: pd.DataFrame, cfg) -> pd.DataFrame:
     low-beta names up the |excess| ranking, which is why "rank by size" can
     score above chance on the plain label. Subtracting beta times the benchmark
     -- with the beta that was estimable at the snapshot -- removes it.
+
+    Writes into the frame it is given; see :func:`add_volnorm_label`.
     """
     h = int(cfg.labels["primary_horizon"])
     q = float(cfg.labels["consequential"]["cross_sectional_quantile"])
@@ -216,10 +218,14 @@ def add_volnorm_label(df: pd.DataFrame, cfg, vol_col: str = "vol_21d") -> pd.Dat
     sigma, then top-decile within the snapshot's cross-section. Separated out so
     it can also be derived from an already-built candidate matrix, which already
     carries both ``consequence_magnitude`` and the trailing volatility feature.
+
+    Writes into the frame it is given. The candidate matrix is hundreds of
+    megabytes, so the caller decides when a copy is worth making rather than
+    paying for one per derived label.
     """
     h = int(cfg.labels["primary_horizon"])
     q = float(cfg.labels["consequential"]["cross_sectional_quantile"])
-    out = df if vol_col.startswith("_") else df.copy()
+    out = df
     if vol_col not in out.columns or "consequence_magnitude" not in out.columns:
         return out
     expected_move = (out[vol_col] / np.sqrt(252.0) * np.sqrt(h)).replace(0, np.nan)

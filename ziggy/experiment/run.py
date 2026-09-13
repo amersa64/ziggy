@@ -52,12 +52,14 @@ def run_experiment(cfg, matrix: pd.DataFrame | None = None) -> dict:
     n_boot = int(cfg.evaluation["bootstrap_samples"])
     block = int(cfg.evaluation["block_bootstrap_length"])
 
-    # Derivable from columns the matrix already carries, so an older candidate
-    # file does not need rebuilding to gain the volatility-normalised label.
-    if "label_cs_q90_volnorm" not in matrix.columns:
-        matrix = add_volnorm_label(matrix.copy(), cfg)
-    if "label_cs_q90_abret" not in matrix.columns:
-        matrix = add_beta_adjusted_label(matrix.copy(), cfg)
+    # Both are derivable from columns the matrix already carries, so an older
+    # candidate file does not need rebuilding to gain them. One copy, not one
+    # per label: this frame is hundreds of megabytes.
+    derived = {"label_cs_q90_volnorm", "label_cs_q90_abret"}
+    if not derived.issubset(matrix.columns):
+        matrix = matrix.copy()
+        matrix = add_volnorm_label(matrix, cfg)
+        matrix = add_beta_adjusted_label(matrix, cfg)
 
     feat_cols = feature_columns(matrix)
     fwd_audit = audit.forward_column_audit(feat_cols)
