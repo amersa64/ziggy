@@ -323,9 +323,44 @@ def build_report(cfg) -> Path:
         A(_md_table(store.read("artifacts", "holdout_by_regime")))
 
     if store.exists("artifacts", "label_robustness"):
+        rb = store.read("artifacts", "label_robustness")
         A("\n## Robustness to the definition of 'consequential'\n")
-        A(_md_table(store.read("artifacts", "label_robustness"),
-                    ["label", "k", "precision", "lift", "base_rate"]))
+        A("The selected ranking, scored unchanged against other definitions of a "
+          "consequential outcome.\n")
+        A(_md_table(rb, ["label", "k", "precision", "lift", "base_rate"]))
+        vn = rb[rb["label"] == "label_cs_q90_volnorm"]
+        if len(vn):
+            lift_vn = float(vn["lift"].iloc[0])
+            if lift_vn < 1.15:
+                A(f"\n**Read this row carefully.** Against `label_cs_q90_volnorm` — the move "
+                  f"measured in units of the name's *own* expected volatility — the selected "
+                  f"ranking scores lift {lift_vn:.3f}. Whatever it has learned is, in "
+                  f"substance, largely about which names are volatile rather than about which "
+                  f"situations are unusual. It ranks well on the primary label partly because "
+                  f"volatile names produce large absolute moves by definition.\n")
+
+    if store.exists("artifacts", "secondary_volnorm_summary"):
+        sec = store.read("artifacts", "secondary_volnorm_summary")
+        sec_k = sec[sec["k"] == k].sort_values("lift", ascending=False)
+        A("\n## Can it find anything beyond volatility?\n")
+        A("The previous section asks how the primary ranking behaves under a harder "
+          "label. This section asks the sharper question: refit the same rankers "
+          "*on* the volatility-normalised label, where picking the jumpy names is "
+          "worth less than nothing, and see whether the disclosure and flow features "
+          "carry anything at all. Frozen-train fits, holdout numbers.\n")
+        A(_md_table(sec_k, ["model", "precision", "lift", "lift_lo", "lift_hi", "capture", "ndcg"]))
+        if store.exists("artifacts", "secondary_volnorm_vs_baselines"):
+            sc = store.read("artifacts", "secondary_volnorm_vs_baselines")
+            sc = sc[sc["k"] == k].sort_values("diff")
+            if len(sc):
+                worst = sc.iloc[0]
+                chosen = str(worst.get("selected_on_validation", "?"))
+                ok = worst["lo"] > 0 and worst["p_value"] < 0.05
+                A(f"\nRefit on this label, `{chosen}` "
+                  f"{'clears' if ok else '**does not clear**'} its hardest baseline "
+                  f"(`{str(worst['reference']).replace('baseline_', '')}`) by "
+                  f"{worst['diff']:+.3f} lift [{worst['lo']:.3f}, {worst['hi']:.3f}], "
+                  f"p={worst['p_value']:.4f}.\n")
 
     if figs.get("importances"):
         A("\n## What the ranker is using\n")

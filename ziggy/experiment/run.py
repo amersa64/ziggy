@@ -37,6 +37,80 @@ def _score_frame(matrix: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     return matrix[["session", "ticker"] + cols]
 
 
+
+def _secondary_label_experiment(
+    cfg, matrix, ranked, scored, splits, feat_cols, label, mag, ks, primary_k, seed,
+    n_boot, block,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Repeat the selection against a second label definition.
+
+    The primary label rewards large *absolute* excess moves, and volatile names
+    make those by definition -- so a model fitted on it can be, in substance, a
+    volatility ranker. The question this answers is whether the disclosure and
+    flow features carry anything **beyond** volatility: the same rankers are
+    fitted on the volatility-normalised label, where the "just pick the jumpy
+    names" strategy is worth less than nothing, and evaluated the same way.
+
+    Frozen-train only. This is a secondary question and does not get to consume
+    the compute budget or the selection authority of the primary one.
+    """
+    if label not in matrix.columns or matrix[label].isna().all():
+        return pd.DataFrame(), pd.DataFrame()
+
+    sub = scored[["session", "ticker", "split"]].copy()
+    sub[label] = matrix[label].values
+    sub[mag] = matrix[mag].values
+    for name in bl.BASELINES:
+        try:
+            sub[f"score_baseline_{name}"] = bl.score_baseline(name, matrix, seed=seed)
+        except KeyError:
+            pass
+
+    train = matrix[(matrix["split"] == "train") & matrix[label].notna()]
+    for name in cfg.ranking["models"]:
+        r = build_ranker(name, seed=seed)
+        if r.needs_fit:
+            r.fit(train, feat_cols, label, ranked=ranked)
+        sub[f"score_{name}"] = r.score(matrix, feat_cols, ranked=ranked).values
+
+    val = sub[sub["split"] == "validation"]
+    hold = sub[sub["split"] == "holdout"]
+    per_model = {}
+    rows = []
+    best, best_lift = None, -np.inf
+    for col in [c for c in sub.columns if c.startswith("score_")]:
+        ps_val = evaluate.per_session_metrics(val, col, label, mag, [primary_k], seed=seed)
+        ps_hold = evaluate.per_session_metrics(hold, col, label, mag, ks, seed=seed)
+        if ps_hold.empty:
+            continue
+        per_model[col] = ps_hold
+        summ = evaluate.summarise(ps_hold, n_boot=n_boot, block=block, seed=seed)
+        summ.insert(0, "model", col.replace("score_", ""))
+        summ.insert(0, "label", label)
+        rows.append(summ)
+        if not col.startswith("score_baseline_") and len(ps_val):
+            lv = float(ps_val["lift"].mean())
+            if lv > best_lift:
+                best, best_lift = col, lv
+
+    summary = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
+    comparison = pd.DataFrame()
+    if best is not None and best in per_model:
+        cmps = []
+        for ref in [c for c in per_model if c.startswith("score_baseline_")]:
+            cmps.append(evaluate.compare_models(
+                {best.replace("score_", ""): per_model[best],
+                 ref.replace("score_", ""): per_model[ref]},
+                reference=ref.replace("score_", ""), k=primary_k, metric="lift",
+                n_boot=n_boot, block=block, seed=seed,
+            ))
+        comparison = pd.concat(cmps, ignore_index=True) if cmps else pd.DataFrame()
+        comparison["selected_on_validation"] = best.replace("score_", "")
+    log.info("secondary experiment on %s: selected %s (validation lift %.3f)",
+             label, best, best_lift if np.isfinite(best_lift) else float("nan"))
+    return summary, comparison
+
+
 def run_experiment(cfg, matrix: pd.DataFrame | None = None) -> dict:
     t0 = time.time()
     store = Store(cfg)
@@ -211,6 +285,13 @@ def run_experiment(cfg, matrix: pd.DataFrame | None = None) -> dict:
         robustness.append(s)
     robustness = pd.concat(robustness, ignore_index=True) if robustness else pd.DataFrame()
 
+    # -- secondary experiment: can it find anything beyond volatility? --------
+    sec_summary, sec_comparison = _secondary_label_experiment(
+        cfg, matrix, ranked, scored, splits, feat_cols,
+        "label_cs_q90_volnorm", "consequence_magnitude_volnorm",
+        ks, primary_k, seed, n_boot, block,
+    )
+
     # -- univariate diagnostics (validation split, never the holdout) ----------
     val_rows = scored[scored["split"] == "validation"].join(
         matrix.loc[matrix["split"] == "validation", feat_cols]
@@ -245,6 +326,10 @@ def run_experiment(cfg, matrix: pd.DataFrame | None = None) -> dict:
         store.write(robustness, "artifacts", "label_robustness")
     if len(univariate):
         store.write(univariate, "artifacts", "univariate_lift")
+    if len(sec_summary):
+        store.write(sec_summary, "artifacts", "secondary_volnorm_summary")
+    if len(sec_comparison):
+        store.write(sec_comparison, "artifacts", "secondary_volnorm_vs_baselines")
     for name, imp in importances.items():
         store.write(imp, "artifacts", f"importances_{name}")
     store.write(scored, "processed", "scored")

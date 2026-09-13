@@ -1,7 +1,7 @@
 {
   "experiment": "exp1_simulation_control",
-  "generated_at": "2026-09-13T05:10:08.492248+00:00",
-  "runtime_seconds": 791.6,
+  "generated_at": "2026-09-13T05:39:26.152381+00:00",
+  "runtime_seconds": 674.3,
   "config_path": "configs/simulation.yaml",
   "snapshot_convention": "20:00 America/New_York",
   "period": {
@@ -190,33 +190,33 @@
     "n_sessions": 280.0,
     "base_rate": 0.1003427505493164,
     "mean_candidates": 1329.0535714285713,
-    "precision": 0.2567857173670616,
-    "precision_lo": 0.24285714688843915,
-    "precision_hi": 0.2707142882667748,
-    "lift": 2.558980135193893,
-    "lift_lo": 2.4200716877994792,
-    "lift_hi": 2.697743270381221,
-    "capture": 0.024085198396018574,
-    "capture_lo": 0.023394484577916694,
-    "capture_hi": 0.02476533990228615,
-    "capture_lift": 1.600907433392713,
-    "capture_lift_lo": 1.553426554389776,
-    "capture_lift_hi": 1.6482458044008526,
-    "mean_mag": 0.05539109151411269,
-    "mean_mag_lo": 0.04956543623220309,
-    "mean_mag_hi": 0.060464889915892855,
-    "mag_ratio": 1.6009074249437878,
-    "mag_ratio_lo": 1.5534265401107925,
-    "mag_ratio_hi": 1.6482457943473543,
-    "ndcg": 0.2832732214644631,
-    "ndcg_lo": 0.2700832905110694,
-    "ndcg_hi": 0.29693342351286545,
-    "hit_any": 0.9964285714285714,
-    "hit_any_lo": 0.9892857142857143,
+    "precision": 0.2594642890750298,
+    "precision_lo": 0.24481696765404196,
+    "precision_hi": 0.27518303915392606,
+    "lift": 2.585632141040904,
+    "lift_lo": 2.439199860497777,
+    "lift_hi": 2.742648435759225,
+    "capture": 0.024246514568637523,
+    "capture_lo": 0.02351469516463112,
+    "capture_hi": 0.025056446929811498,
+    "capture_lift": 1.6112497335767175,
+    "capture_lift_lo": 1.5621957578239383,
+    "capture_lift_hi": 1.6647643042340186,
+    "mean_mag": 0.05559771680273116,
+    "mean_mag_lo": 0.04988328989013098,
+    "mean_mag_hi": 0.06071097678953914,
+    "mag_ratio": 1.61124973403556,
+    "mag_ratio_lo": 1.5621957515073674,
+    "mag_ratio_hi": 1.6647643046453595,
+    "ndcg": 0.2833986816243443,
+    "ndcg_lo": 0.2695411550081281,
+    "ndcg_hi": 0.29766061563625557,
+    "hit_any": 1.0,
+    "hit_any_lo": 1.0,
     "hit_any_hi": 1.0,
-    "expected_hits": 5.135714285714286,
-    "expected_hits_lo": 4.857142857142857,
-    "expected_hits_hi": 5.414285714285715
+    "expected_hits": 5.189285714285714,
+    "expected_hits_lo": 4.896339285714285,
+    "expected_hits_hi": 5.503660714285715
   },
   "fit_log": {
     "logistic": {
@@ -314,10 +314,10 @@
       "note": "a UTC misreading would push the modal 8-K hour into the small hours and drop the in-hours share far below 97%"
     },
     "feature_availability": {
-      "events_checked": 137500,
+      "events_checked": 136083,
       "violations_disclosure_after_snapshot": 0,
       "min_gap_hours": 0.0,
-      "median_gap_hours": 7.516666666666667,
+      "median_gap_hours": 7.333333333333333,
       "status": "clean"
     },
     "forward_columns": {
@@ -334,8 +334,8 @@
     },
     "shuffle_control": {
       "k": 20,
-      "real_lift": 2.5589802265167236,
-      "shuffled_score_lift": 1.0215835571289062,
+      "real_lift": 2.585632085800171,
+      "shuffled_score_lift": 1.0161391496658325,
       "status": "clean"
     },
     "leakage_canary": {
@@ -345,10 +345,10 @@
       "note": "this ranker is allowed to see the label; it is never used in the experiment"
     },
     "permutation_test": {
-      "observed_lift": 2.5589802265167236,
-      "null_mean": 1.0050071636835733,
-      "null_std": 0.035771119165991704,
-      "null_p95": 1.0574447333812713,
+      "observed_lift": 2.585632105449622,
+      "null_mean": 1.001042689488311,
+      "null_std": 0.03926958742352476,
+      "null_p95": 1.0606096851631974,
       "p_value": 0.01639344262295082,
       "n_permutations": 60
     }
