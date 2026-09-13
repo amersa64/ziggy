@@ -57,18 +57,25 @@ def build_candidate_matrix(
         if extra is not None and len(extra):
             df = df.merge(extra, on="session", how="left")
 
-    # Missing-value policy, made explicit.
-    for col in df.columns:
-        if col in SENTINEL_FILL:
-            df[col] = df[col].fillna(SENTINEL_FILL[col])
-        elif any(col.startswith(p) for p in ZERO_FILL_PREFIXES):
-            df[col] = df[col].fillna(0.0)
+    # Missing-value policy, made explicit, and applied column-block at a time:
+    # assigning ~170 columns one by one fragments the frame badly at this size.
+    sentinel_cols = [c for c in df.columns if c in SENTINEL_FILL]
+    zero_cols = [c for c in df.columns
+                 if c not in SENTINEL_FILL and any(c.startswith(p) for p in ZERO_FILL_PREFIXES)]
+    if sentinel_cols:
+        df[sentinel_cols] = df[sentinel_cols].fillna(
+            {c: SENTINEL_FILL[c] for c in sentinel_cols}
+        )
+    if zero_cols:
+        df[zero_cols] = df[zero_cols].fillna(0.0)
 
-    df["has_disclosure"] = (df.get("sec_n_filings", pd.Series(0, index=df.index)) > 0).astype("float32")
-    df["log_adv20_universe"] = np.log1p(df["adv20"]).astype("float32")
+    df = df.assign(
+        has_disclosure=(df.get("sec_n_filings", pd.Series(0.0, index=df.index)) > 0).astype("float32"),
+        log_adv20_universe=np.log1p(df["adv20"]).astype("float32"),
+    )
 
     num = [c for c in df.columns if c not in ("session", "ticker", "snapshot_ts")]
-    df[num] = df[num].astype("float32")
+    df = df.astype({c: "float32" for c in num})
     df = df.sort_values(["session", "ticker"]).reset_index(drop=True)
     log.info("candidate matrix: %d rows x %d columns", len(df), df.shape[1])
     return df
