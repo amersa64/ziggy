@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 
 from ziggy import audit, evaluate
+from ziggy.config import REPO_ROOT
 from ziggy.features.assemble import cross_sectional_rank, feature_columns
 from ziggy.labels import add_beta_adjusted_label, add_volnorm_label, calibrate_abs_threshold
 from ziggy.rank import baselines as bl
@@ -36,6 +37,31 @@ log = logging.getLogger(__name__)
 def _score_frame(matrix: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     return matrix[["session", "ticker"] + cols]
 
+
+
+def _provenance() -> dict:
+    """Everything needed to tie a number back to the code that produced it."""
+    import platform
+    import subprocess
+
+    import sklearn
+
+    def _git(*args: str) -> str | None:
+        try:
+            return subprocess.run(["git", *args], capture_output=True, text=True,
+                                  timeout=10, cwd=str(REPO_ROOT)).stdout.strip() or None
+        except Exception:
+            return None
+
+    dirty = _git("status", "--porcelain")
+    return {
+        "git_commit": _git("rev-parse", "HEAD"),
+        "git_branch": _git("rev-parse", "--abbrev-ref", "HEAD"),
+        "git_dirty": bool(dirty),
+        "python": platform.python_version(),
+        "packages": {"pandas": pd.__version__, "numpy": np.__version__,
+                     "scikit-learn": sklearn.__version__},
+    }
 
 
 def _secondary_label_experiment(
@@ -342,6 +368,8 @@ def run_experiment(cfg, matrix: pd.DataFrame | None = None) -> dict:
         "generated_at": pd.Timestamp.utcnow().isoformat(),
         "runtime_seconds": round(time.time() - t0, 1),
         "config_path": str(cfg.path),
+        "seed": seed,
+        "provenance": _provenance(),
         "snapshot_convention": f"{cfg.experiment['snapshot_time_local']} {cfg.experiment['timezone']}",
         "period": {"start": str(cfg.experiment["start_date"]), "end": str(cfg.experiment["end_date"])},
         "rows": int(len(matrix)),

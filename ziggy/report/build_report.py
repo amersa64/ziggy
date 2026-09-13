@@ -411,6 +411,13 @@ def build_report(cfg) -> Path:
         A("```json\n" + json.dumps(surv, indent=2, default=str) + "\n```\n")
 
     A("\n## Reproduce\n")
+    prov = manifest.get("provenance", {})
+    if prov.get("git_commit"):
+        A(f"Produced by commit `{prov['git_commit'][:12]}` on `{prov.get('git_branch', '?')}`"
+          + (" **with uncommitted changes in the working tree**" if prov.get("git_dirty") else "")
+          + f", Python {prov.get('python', '?')}, "
+          + ", ".join(f"{k} {v}" for k, v in (prov.get("packages") or {}).items())
+          + f", seed {manifest.get('seed')}.\n")
     A("```bash\npip install -r requirements.txt\n"
       f"python -m ziggy.cli all --config {manifest['config_path']}\n```\n")
 
