@@ -418,8 +418,17 @@ def build_report(cfg) -> Path:
           + f", Python {prov.get('python', '?')}, "
           + ", ".join(f"{k} {v}" for k, v in (prov.get("packages") or {}).items())
           + f", seed {manifest.get('seed')}.\n")
-    A("```bash\npip install -r requirements.txt\n"
-      f"python -m ziggy.cli all --config {manifest['config_path']}\n```\n")
+    cfg_path = manifest["config_path"]
+    if simulated:
+        # `all` begins with `ingest`; the simulation never touches the network.
+        A("```bash\npip install -r requirements.txt\n"
+          f"python -m ziggy.cli simulate   --config {cfg_path}\n"
+          f"python -m ziggy.cli build      --config {cfg_path}\n"
+          f"python -m ziggy.cli experiment --config {cfg_path}\n"
+          f"python -m ziggy.cli report     --config {cfg_path}\n```\n")
+    else:
+        A("```bash\npip install -r requirements.txt\n"
+          f"python -m ziggy.cli all --config {cfg_path}\n```\n")
 
     path = art / "REPORT.md"
     path.write_text("\n".join(lines))

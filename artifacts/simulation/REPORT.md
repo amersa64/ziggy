@@ -5,7 +5,7 @@
 > end to end and acts as a positive control. **It is not evidence about real
 > markets.** See `REPORT.md` for the real-data run.
 
-_Generated 2026-09-13T05:39:26.152381+00:00 · config `configs/simulation.yaml` · runtime 674.3s_
+_Generated 2026-09-13T05:55:57.205614+00:00 · config `configs/simulation.yaml` · runtime 883.6s_
 
 ## The question
 
@@ -115,12 +115,40 @@ The training period is absent from this chart because the selected model is a wa
 
 ## Robustness to the definition of 'consequential'
 
+The selected ranking, scored unchanged against other definitions of a consequential outcome.
+
 | label | k | precision | lift | base_rate |
 | --- | --- | --- | --- | --- |
 | label_abs | 20 | 0.151 | 3.543 | 0.048 |
 | label_cs_q90_abret | 20 | 0.262 | 2.610 | 0.100 |
 | label_cs_q90_volnorm | 20 | 0.092 | 0.918 | 0.100 |
 | label_vol_expansion | 20 | 0.057 | 1.244 | 0.044 |
+
+
+**Read this row carefully.** Against `label_cs_q90_volnorm` — the move measured in units of the name's *own* expected volatility — the selected ranking scores lift 0.918. Whatever it has learned is, in substance, largely about which names are volatile rather than about which situations are unusual. It ranks well on the primary label partly because volatile names produce large absolute moves by definition.
+
+
+## Can it find anything beyond volatility?
+
+The previous section asks how the primary ranking behaves under a harder label. This section asks the sharper question: refit the same rankers *on* the volatility-normalised label, where picking the jumpy names is worth less than nothing, and see whether the disclosure and flow features carry anything at all. Frozen-train fits, holdout numbers.
+
+| model | precision | lift | lift_lo | lift_hi | capture | ndcg |
+| --- | --- | --- | --- | --- | --- | --- |
+| gbm | 0.273 | 2.718 | 2.559 | 2.884 | 0.024 | 0.284 |
+| logistic | 0.254 | 2.536 | 2.371 | 2.698 | 0.023 | 0.276 |
+| baseline_earnings_only | 0.129 | 1.288 | 1.212 | 1.354 | 0.017 | 0.203 |
+| deterministic | 0.124 | 1.233 | 1.146 | 1.322 | 0.016 | 0.195 |
+| baseline_any_disclosure | 0.115 | 1.150 | 1.077 | 1.234 | 0.016 | 0.187 |
+| baseline_n_filings | 0.115 | 1.143 | 1.073 | 1.224 | 0.016 | 0.186 |
+| baseline_volume_spike | 0.109 | 1.084 | 1.002 | 1.169 | 0.015 | 0.178 |
+| baseline_inverse_liquidity | 0.107 | 1.063 | 0.955 | 1.180 | 0.015 | 0.180 |
+| baseline_random | 0.102 | 1.018 | 0.934 | 1.098 | 0.015 | 0.176 |
+| baseline_liquidity | 0.096 | 0.956 | 0.865 | 1.052 | 0.015 | 0.168 |
+| baseline_prior_abs_move | 0.053 | 0.530 | 0.463 | 0.600 | 0.012 | 0.133 |
+| baseline_trailing_vol | 0.010 | 0.096 | 0.059 | 0.139 | 0.008 | 0.084 |
+
+
+Refit on this label, `gbm` clears its hardest baseline (`earnings_only`) by +1.429 lift [1.276, 1.594], p=0.0010.
 
 
 ## Which single signals carry information
@@ -151,7 +179,30 @@ Lift@20 from ranking on one feature alone, measured on the **validation** split.
 | abs_exret_1d | high | 1.685 | 1.000 |
 
 
-Weakest signals in the same set:
+### Disclosure signals on their own
+
+The table above is dominated by price and volatility features, which is expected for a label defined on the size of a move. These are the disclosure, text and insider features ranked among themselves — the signals this layer exists to add. Best price feature for comparison: `idio_vol_63d` at 2.143.
+
+| feature | direction | best_lift | coverage |
+| --- | --- | --- | --- |
+| sec_n_item_codes | high | 1.467 | 1.000 |
+| sec_n_8k | high | 1.461 | 1.000 |
+| sec_sessions_since_8k | low | 1.321 | 1.000 |
+| sec_size_log_ratio | extreme | 1.182 | 0.063 |
+| insider_buy_ratio_63d | high | 1.171 | 1.000 |
+| insider_log_net_63d | high | 1.167 | 1.000 |
+| insider_net_value_63d | high | 1.167 | 1.000 |
+| sec_days_since_any | low | 1.164 | 1.000 |
+| insider_buy_value_63d | high | 1.150 | 1.000 |
+| sec_minutes_past_close | high | 1.114 | 0.063 |
+| sec_n_filings | high | 1.101 | 1.000 |
+| sec_8k_63d_prior | low | 1.086 | 1.000 |
+
+
+One caveat specific to sparse indicators: a feature that is 1 for only a handful of names a day cannot fill a k-name shortlist on its own, so the remaining slots are filled at random and its measured lift is diluted towards 1. A rare, highly informative flag can therefore score below a common, weakly informative one here. The fitted models have no such handicap because they combine features.
+
+
+Weakest signals in the whole set:
 
 | feature | direction | best_lift | coverage |
 | --- | --- | --- | --- |
