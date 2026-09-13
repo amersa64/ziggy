@@ -1,0 +1,266 @@
+"""Evaluation of a frozen daily ranking.
+
+Every metric is computed *per snapshot* and then averaged across snapshots, so a
+handful of huge days cannot carry the result. Uncertainty comes from a
+stationary block bootstrap over snapshots (block length ~10 sessions), because
+adjacent days are not independent: overlapping label windows and shared market
+regimes induce serial correlation that an i.i.d. bootstrap would ignore, giving
+intervals that are far too narrow.
+
+Metrics
+-------
+``precision@k``  share of the k selected names that were consequential
+``lift@k``       precision@k divided by the base rate over the same candidate
+                 set -- "how many times better than picking at random"
+``capture@k``    share of the day's *total* absolute excess movement that landed
+                 inside the k selected names
+``mean_mag@k``   average |excess move| of the selected names
+``ndcg@k``       rank quality using |excess move| as the gain
+``hit_any@k``    share of days where at least one selected name was consequential
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+
+import numpy as np
+import pandas as pd
+
+log = logging.getLogger(__name__)
+
+
+# --------------------------------------------------------------------------- #
+# Per-session metrics
+# --------------------------------------------------------------------------- #
+def _dcg(gains: np.ndarray) -> float:
+    return float(np.sum(gains / np.log2(np.arange(2, len(gains) + 2))))
+
+
+def per_session_metrics(
+    df: pd.DataFrame,
+    score_col: str,
+    label_col: str,
+    magnitude_col: str,
+    ks: list[int],
+    session_col: str = "session",
+    seed: int = 0,
+) -> pd.DataFrame:
+    """One row per session per k."""
+    rng = np.random.default_rng(seed)
+    need = [session_col, score_col, label_col, magnitude_col]
+    d = df[need].dropna(subset=[score_col, label_col, magnitude_col])
+    if d.empty:
+        return pd.DataFrame()
+    # Break score ties at random rather than alphabetically by ticker, which
+    # would silently favour whatever "AAPL" happens to be that day.
+    d = d.assign(_tie=rng.random(len(d)))
+    d = d.sort_values([session_col, score_col, "_tie"], ascending=[True, False, True])
+    d["_rank"] = d.groupby(session_col, observed=True).cumcount() + 1
+
+    rows = []
+    for sess, g in d.groupby(session_col, observed=True, sort=True):
+        n = len(g)
+        lab = g[label_col].to_numpy()
+        mag = g[magnitude_col].to_numpy()
+        total_mag = mag.sum()
+        base = lab.mean()
+        ideal = np.sort(mag)[::-1]
+        for k in ks:
+            kk = min(k, n)
+            sel_lab = lab[:kk]
+            sel_mag = mag[:kk]
+            idcg = _dcg(ideal[:kk])
+            rows.append(
+                {
+                    "session": sess, "k": k, "n_candidates": n, "base_rate": base,
+                    "precision": sel_lab.mean(),
+                    "expected_hits": sel_lab.sum(),
+                    "capture": (sel_mag.sum() / total_mag) if total_mag > 0 else np.nan,
+                    "mean_mag": sel_mag.mean(),
+                    "universe_mean_mag": mag.mean(),
+                    "ndcg": (_dcg(sel_mag) / idcg) if idcg > 0 else np.nan,
+                    "hit_any": float(sel_lab.sum() > 0),
+                }
+            )
+    out = pd.DataFrame(rows)
+    out["lift"] = out["precision"] / out["base_rate"].replace(0, np.nan)
+    out["mag_ratio"] = out["mean_mag"] / out["universe_mean_mag"].replace(0, np.nan)
+    out["capture_lift"] = out["capture"] / (out["k"].clip(upper=out["n_candidates"]) / out["n_candidates"])
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Bootstrap
+# --------------------------------------------------------------------------- #
+def block_bootstrap_ci(
+    values: np.ndarray, n_boot: int = 2000, block: int = 10, alpha: float = 0.05, seed: int = 0
+) -> tuple[float, float, float]:
+    """(mean, lo, hi) from a stationary block bootstrap over an ordered series."""
+    v = np.asarray(values, dtype=float)
+    v = v[~np.isnan(v)]
+    if len(v) == 0:
+        return (np.nan, np.nan, np.nan)
+    if len(v) < block * 2:
+        block = max(1, len(v) // 4)
+    rng = np.random.default_rng(seed)
+    n = len(v)
+    n_blocks = int(np.ceil(n / block))
+    means = np.empty(n_boot)
+    starts = rng.integers(0, n, size=(n_boot, n_blocks))
+    idx_offsets = np.arange(block)
+    for b in range(n_boot):
+        idx = (starts[b][:, None] + idx_offsets[None, :]).ravel()[:n] % n
+        means[b] = v[idx].mean()
+    lo, hi = np.quantile(means, [alpha / 2, 1 - alpha / 2])
+    return float(v.mean()), float(lo), float(hi)
+
+
+def paired_block_bootstrap(
+    a: np.ndarray, b: np.ndarray, n_boot: int = 2000, block: int = 10, seed: int = 0
+) -> dict:
+    """Difference ``a - b`` on the same sessions, with a bootstrap p-value."""
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    ok = ~(np.isnan(a) | np.isnan(b))
+    a, b = a[ok], b[ok]
+    if len(a) == 0:
+        return {"diff": np.nan, "lo": np.nan, "hi": np.nan, "p_value": np.nan, "n": 0}
+    d = a - b
+    mean, lo, hi = block_bootstrap_ci(d, n_boot=n_boot, block=block, seed=seed)
+    # Two-sided bootstrap p-value: how often a recentred resample reaches 0.
+    rng = np.random.default_rng(seed + 1)
+    n, blk = len(d), min(block, max(1, len(d) // 4))
+    n_blocks = int(np.ceil(n / blk))
+    centred = d - d.mean()
+    hits = 0
+    offs = np.arange(blk)
+    starts = rng.integers(0, n, size=(n_boot, n_blocks))
+    for i in range(n_boot):
+        idx = (starts[i][:, None] + offs[None, :]).ravel()[:n] % n
+        if abs(centred[idx].mean()) >= abs(d.mean()):
+            hits += 1
+    return {"diff": mean, "lo": lo, "hi": hi, "p_value": (hits + 1) / (n_boot + 1), "n": int(n)}
+
+
+# --------------------------------------------------------------------------- #
+# Aggregation
+# --------------------------------------------------------------------------- #
+METRIC_COLS = ["precision", "lift", "capture", "capture_lift", "mean_mag",
+               "mag_ratio", "ndcg", "hit_any", "expected_hits"]
+
+
+def summarise(
+    per_session: pd.DataFrame, n_boot: int = 2000, block: int = 10, seed: int = 0
+) -> pd.DataFrame:
+    """Bootstrap mean and 95% CI for each metric at each k."""
+    rows = []
+    for k, g in per_session.groupby("k", observed=True, sort=True):
+        g = g.sort_values("session")
+        row = {"k": int(k), "n_sessions": int(len(g)),
+               "base_rate": float(g["base_rate"].mean()),
+               "mean_candidates": float(g["n_candidates"].mean())}
+        for m in METRIC_COLS:
+            if m not in g.columns:
+                continue
+            mean, lo, hi = block_bootstrap_ci(g[m].to_numpy(), n_boot, block, seed=seed)
+            row[m] = mean
+            row[f"{m}_lo"] = lo
+            row[f"{m}_hi"] = hi
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def compare_models(
+    per_session_by_model: dict[str, pd.DataFrame],
+    reference: str,
+    k: int,
+    metric: str = "lift",
+    n_boot: int = 2000,
+    block: int = 10,
+    seed: int = 0,
+) -> pd.DataFrame:
+    """Paired comparison of every model against ``reference`` at one k."""
+    ref = per_session_by_model[reference]
+    ref = ref[ref["k"] == k].set_index("session")[metric]
+    rows = []
+    for name, ps in per_session_by_model.items():
+        if name == reference:
+            continue
+        cur = ps[ps["k"] == k].set_index("session")[metric]
+        common = ref.index.intersection(cur.index)
+        res = paired_block_bootstrap(
+            cur.reindex(common).to_numpy(), ref.reindex(common).to_numpy(),
+            n_boot=n_boot, block=block, seed=seed,
+        )
+        rows.append({"model": name, "reference": reference, "k": k, "metric": metric, **res})
+    return pd.DataFrame(rows).sort_values("diff", ascending=False).reset_index(drop=True)
+
+
+def permutation_null(
+    df: pd.DataFrame,
+    score_col: str,
+    label_col: str,
+    magnitude_col: str,
+    k: int,
+    n_perm: int = 200,
+    seed: int = 0,
+) -> dict:
+    """Within-day label shuffle.
+
+    Under the null the ranking carries no information about which names moved,
+    so lift must collapse to ~1.0. If it does not, something is leaking.
+    """
+    rng = np.random.default_rng(seed)
+    d = df[["session", score_col, label_col, magnitude_col]].dropna()
+    observed = per_session_metrics(d, score_col, label_col, magnitude_col, [k], seed=seed)
+    obs_lift = float(observed["lift"].mean())
+    null = []
+    for i in range(n_perm):
+        p = d.copy()
+        p[label_col] = p.groupby("session", observed=True)[label_col].transform(
+            lambda s: s.sample(frac=1.0, random_state=int(rng.integers(1e9))).to_numpy()
+        )
+        m = per_session_metrics(p, score_col, label_col, magnitude_col, [k], seed=seed + i)
+        null.append(float(m["lift"].mean()))
+    null = np.array(null)
+    return {
+        "observed_lift": obs_lift,
+        "null_mean": float(null.mean()),
+        "null_std": float(null.std()),
+        "null_p95": float(np.quantile(null, 0.95)),
+        "p_value": float(((null >= obs_lift).sum() + 1) / (n_perm + 1)),
+        "n_permutations": int(n_perm),
+    }
+
+
+def by_regime(
+    per_session: pd.DataFrame, regime: pd.DataFrame, k: int, column: str = "vix_level"
+) -> pd.DataFrame:
+    """Break the headline metric down by market regime terciles."""
+    if column not in regime.columns:
+        return pd.DataFrame()
+    r = regime[["session", column]].dropna()
+    g = per_session[per_session["k"] == k].merge(r, on="session", how="inner")
+    if g.empty:
+        return pd.DataFrame()
+    g["regime"] = pd.qcut(g[column], 3, labels=["calm", "normal", "stressed"])
+    out = (
+        g.groupby("regime", observed=True)
+        .agg(n_sessions=("session", "nunique"), base_rate=("base_rate", "mean"),
+             precision=("precision", "mean"), lift=("lift", "mean"),
+             capture=("capture", "mean"), mag_ratio=("mag_ratio", "mean"))
+        .reset_index()
+    )
+    return out
+
+
+def by_year(per_session: pd.DataFrame, k: int) -> pd.DataFrame:
+    g = per_session[per_session["k"] == k].copy()
+    g["year"] = pd.to_datetime(g["session"]).dt.year
+    return (
+        g.groupby("year", observed=True)
+        .agg(n_sessions=("session", "nunique"), base_rate=("base_rate", "mean"),
+             precision=("precision", "mean"), lift=("lift", "mean"),
+             capture=("capture", "mean"), mag_ratio=("mag_ratio", "mean"),
+             ndcg=("ndcg", "mean"))
+        .reset_index()
+    )

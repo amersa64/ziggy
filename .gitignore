@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+data/
+
+
+!data/**/.gitkeep
+*.egg-info/
+.ipynb_checkpoints/
+artifacts/**/http_cache/

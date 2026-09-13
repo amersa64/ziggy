@@ -1,0 +1,249 @@
+"""The experiment.
+
+    Given everything publicly knowable at 20:00 ET on session D, can we rank the
+    tradable universe so that a 10-30 name shortlist contains substantially more
+    consequential future market activity than a naive baseline?
+
+Protocol, fixed before any result was looked at:
+
+* Chronological train / validation / holdout split with an embargo.
+* Rankers and the absolute-threshold calibration see the training split only.
+* Model selection -- which ranker, frozen vs walk-forward -- is decided on the
+  validation split.
+* The holdout is scored **once**, with the selection already fixed, and that
+  number is the headline result. A run that touches the holdout twice is
+  recorded as such in the manifest.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import time
+
+import numpy as np
+import pandas as pd
+
+from ziggy import audit, evaluate
+from ziggy.features.assemble import feature_columns
+from ziggy.labels import calibrate_abs_threshold
+from ziggy.rank import baselines as bl
+from ziggy.rank.models import build_ranker, walk_forward_scores
+from ziggy.splits import make_splits
+from ziggy.store import Store
+
+log = logging.getLogger(__name__)
+
+
+def _score_frame(matrix: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    return matrix[["session", "ticker"] + cols]
+
+
+def run_experiment(cfg, matrix: pd.DataFrame | None = None) -> dict:
+    t0 = time.time()
+    store = Store(cfg)
+    if matrix is None:
+        matrix = store.read("processed", "candidates")
+
+    label_col = "label_cs_q90"
+    mag_col = "consequence_magnitude"
+    horizon = int(cfg.labels["primary_horizon"])
+    ks = list(cfg.ranking["top_k"])
+    primary_k = int(cfg.ranking["primary_k"])
+    seed = cfg.seed
+    n_boot = int(cfg.evaluation["bootstrap_samples"])
+    block = int(cfg.evaluation["block_bootstrap_length"])
+
+    feat_cols = feature_columns(matrix)
+    fwd_audit = audit.forward_column_audit(feat_cols)
+    if fwd_audit["status"] != "clean":
+        raise AssertionError(f"label-like columns reached the feature set: {fwd_audit}")
+    log.info("features available to the ranker: %d", len(feat_cols))
+
+    sessions = pd.DatetimeIndex(sorted(matrix["session"].unique()))
+    splits = make_splits(sessions, cfg)
+    matrix = matrix.copy()
+    matrix["split"] = splits.label_of(matrix["session"])
+
+    # Absolute threshold calibrated on train only, then applied everywhere.
+    train_rows = matrix[matrix["split"] == "train"]
+    abs_thr = calibrate_abs_threshold(train_rows, cfg.labels["consequential"]["cross_sectional_quantile"])
+    matrix["label_abs"] = (matrix[mag_col] >= abs_thr).astype("float32")
+    matrix.loc[matrix[mag_col].isna(), "label_abs"] = np.nan
+    log.info("absolute |excess| threshold from train split: %.4f", abs_thr)
+
+    scored = matrix[["session", "ticker", "split", label_col, "label_abs", mag_col]].copy()
+    if "label_vol_expansion" in matrix.columns:
+        scored["label_vol_expansion"] = matrix["label_vol_expansion"]
+
+    # -- baselines -------------------------------------------------------------
+    for name in bl.BASELINES:
+        try:
+            scored[f"score_baseline_{name}"] = bl.score_baseline(name, matrix, seed=seed)
+        except KeyError as exc:
+            log.warning("baseline %s unavailable: %s", name, exc)
+
+    # -- models ----------------------------------------------------------------
+    fit_log: dict = {}
+    importances: dict[str, pd.DataFrame] = {}
+    for name in cfg.ranking["models"]:
+        ranker = build_ranker(name, seed=seed)
+        if ranker.needs_fit:
+            tr = matrix[(matrix["split"] == "train") & matrix[label_col].notna()]
+            ranker.fit(tr, feat_cols, label_col)
+            fit_log[name] = {"mode": "frozen_train", "train_rows": int(len(tr)),
+                             "train_sessions": int(tr["session"].nunique())}
+        scored[f"score_{name}"] = ranker.score(matrix, feat_cols).values
+        imp = ranker.importances()
+        if imp is not None:
+            importances[name] = imp
+
+        if ranker.needs_fit and cfg.ranking["walk_forward"]["enabled"]:
+            wf_sessions = splits.validation.append(splits.holdout)
+            s, rows = walk_forward_scores(
+                name, matrix, feat_cols, label_col, wf_sessions,
+                min_train_sessions=int(cfg.ranking["walk_forward"]["min_train_sessions"]),
+                seed=seed,
+            )
+            scored[f"score_{name}_wf"] = s.values
+            fit_log[f"{name}_wf"] = {"mode": "walk_forward", "refits": rows}
+
+    score_cols = [c for c in scored.columns if c.startswith("score_")]
+    log.info("scored %d rankers over %d rows", len(score_cols), len(scored))
+
+    # -- evaluation ------------------------------------------------------------
+    per_session: dict[str, dict[str, pd.DataFrame]] = {}
+    summaries = []
+    for split_name in ("train", "validation", "holdout"):
+        sub = scored[scored["split"] == split_name]
+        per_session[split_name] = {}
+        for sc in score_cols:
+            if sub[sc].isna().all():
+                continue
+            ps = evaluate.per_session_metrics(sub, sc, label_col, mag_col, ks, seed=seed)
+            if ps.empty:
+                continue
+            per_session[split_name][sc] = ps
+            s = evaluate.summarise(ps, n_boot=n_boot, block=block, seed=seed)
+            s.insert(0, "model", sc.replace("score_", ""))
+            s.insert(0, "split", split_name)
+            summaries.append(s)
+    summary = pd.concat(summaries, ignore_index=True) if summaries else pd.DataFrame()
+
+    # -- model selection on VALIDATION ONLY ------------------------------------
+    val = summary[(summary["split"] == "validation") & (summary["k"] == primary_k)]
+    model_names = [c.replace("score_", "") for c in score_cols if not c.startswith("score_baseline_")]
+    val_models = val[val["model"].isin(model_names)].sort_values("lift", ascending=False)
+    selected = str(val_models.iloc[0]["model"]) if len(val_models) else "deterministic"
+    log.info("model selected on validation: %s (lift@%d = %.3f)", selected, primary_k,
+             float(val_models.iloc[0]["lift"]) if len(val_models) else float("nan"))
+
+    # -- headline: holdout, evaluated once with the selection fixed ------------
+    sel_col = f"score_{selected}"
+    holdout = scored[scored["split"] == "holdout"]
+    headline = {}
+    if sel_col in per_session["holdout"]:
+        hs = evaluate.summarise(per_session["holdout"][sel_col], n_boot=n_boot, block=block, seed=seed)
+        row = hs[hs["k"] == primary_k].iloc[0].to_dict()
+        headline = {k: (float(v) if isinstance(v, (int, float, np.floating)) else v) for k, v in row.items()}
+
+    # -- comparisons against every baseline on the holdout ---------------------
+    comparisons = []
+    for k in ks:
+        for ref in [c for c in per_session["holdout"] if c.startswith("score_baseline_")]:
+            if sel_col not in per_session["holdout"]:
+                continue
+            cmp = evaluate.compare_models(
+                {selected: per_session["holdout"][sel_col], ref.replace("score_", ""): per_session["holdout"][ref]},
+                reference=ref.replace("score_", ""), k=k, metric="lift", n_boot=n_boot, block=block, seed=seed,
+            )
+            comparisons.append(cmp)
+    comparison = pd.concat(comparisons, ignore_index=True) if comparisons else pd.DataFrame()
+
+    # -- breakdowns ------------------------------------------------------------
+    regime_cols = [c for c in matrix.columns if c in ("vix_level", "macro_VIXCLS")]
+    regime = matrix[["session"] + regime_cols].drop_duplicates("session") if regime_cols else pd.DataFrame()
+    by_regime = pd.DataFrame()
+    if len(regime) and sel_col in per_session["holdout"]:
+        by_regime = evaluate.by_regime(per_session["holdout"][sel_col], regime, primary_k, regime_cols[0])
+    by_year = pd.DataFrame()
+    if sel_col in per_session["holdout"]:
+        allps = pd.concat(
+            [per_session[s][sel_col] for s in ("train", "validation", "holdout") if sel_col in per_session[s]],
+            ignore_index=True,
+        )
+        by_year = evaluate.by_year(allps, primary_k)
+
+    # -- label-definition robustness -------------------------------------------
+    robustness = []
+    for alt_label in ("label_abs", "label_vol_expansion"):
+        if alt_label not in scored.columns or scored[alt_label].isna().all():
+            continue
+        if sel_col not in per_session["holdout"]:
+            continue
+        ps = evaluate.per_session_metrics(holdout, sel_col, alt_label, mag_col, [primary_k], seed=seed)
+        if ps.empty:
+            continue
+        s = evaluate.summarise(ps, n_boot=n_boot, block=block, seed=seed)
+        s.insert(0, "label", alt_label)
+        robustness.append(s)
+    robustness = pd.concat(robustness, ignore_index=True) if robustness else pd.DataFrame()
+
+    # -- audits ----------------------------------------------------------------
+    filings = store.read("interim", "filings_normalised") if store.exists("interim", "filings_normalised") else pd.DataFrame()
+    events = store.read("interim", "events") if store.exists("interim", "events") else pd.DataFrame()
+    audits = audit.run_all(
+        filings=filings, events=events, matrix=matrix, feature_cols=feat_cols,
+        scored=holdout if sel_col in holdout.columns else None, score_col=sel_col,
+        label_col=label_col, magnitude_col=mag_col, k=primary_k, horizon=horizon, seed=seed,
+    )
+    if sel_col in holdout.columns:
+        audits["permutation_test"] = evaluate.permutation_null(
+            holdout, sel_col, label_col, mag_col, primary_k,
+            n_perm=int(cfg.evaluation.get("permutation_samples", 100)), seed=seed,
+        )
+
+    # -- persist ---------------------------------------------------------------
+    store.write(summary, "artifacts", "summary")
+    if len(comparison):
+        store.write(comparison, "artifacts", "holdout_vs_baselines")
+    if len(by_regime):
+        store.write(by_regime, "artifacts", "holdout_by_regime")
+    if len(by_year):
+        store.write(by_year, "artifacts", "by_year")
+    if len(robustness):
+        store.write(robustness, "artifacts", "label_robustness")
+    for name, imp in importances.items():
+        store.write(imp, "artifacts", f"importances_{name}")
+    store.write(scored, "processed", "scored")
+    for split_name, d in per_session.items():
+        if sel_col in d:
+            store.write(d[sel_col], "artifacts", f"per_session_{split_name}")
+
+    manifest = {
+        "experiment": cfg.experiment["name"],
+        "generated_at": pd.Timestamp.utcnow().isoformat(),
+        "runtime_seconds": round(time.time() - t0, 1),
+        "config_path": str(cfg.path),
+        "snapshot_convention": f"{cfg.experiment['snapshot_time_local']} {cfg.experiment['timezone']}",
+        "period": {"start": str(cfg.experiment["start_date"]), "end": str(cfg.experiment["end_date"])},
+        "rows": int(len(matrix)),
+        "sessions": int(matrix["session"].nunique()),
+        "tickers": int(matrix["ticker"].nunique()),
+        "mean_candidates_per_session": float(matrix.groupby("session").size().mean()),
+        "n_features": len(feat_cols),
+        "features": feat_cols,
+        "splits": splits.to_dict(),
+        "abs_threshold_from_train": abs_thr,
+        "primary_label": label_col,
+        "primary_horizon_sessions": horizon,
+        "primary_k": primary_k,
+        "selected_model": selected,
+        "selection_basis": f"validation lift@{primary_k}",
+        "holdout_headline": headline,
+        "fit_log": fit_log,
+        "audits": audits,
+        "holdout_evaluations": 1,
+    }
+    store.write_json(manifest, "artifacts", "manifest")
+    log.info("experiment complete in %.1fs; selected=%s", time.time() - t0, selected)
+    return manifest

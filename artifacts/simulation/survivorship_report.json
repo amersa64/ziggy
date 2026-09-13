@@ -1,0 +1,11 @@
+{
+  "tickers_ever_in_universe": 1724,
+  "tickers_disappeared_before_end": 259,
+  "annual_disappearance_rate": 0.02657251563175901,
+  "expected_annual_delisting_rate_us_equities": 0.04,
+  "tickers_first_seen_after_start": 205,
+  "names_per_session_median": 1365.0,
+  "names_per_session_min": 1292,
+  "names_per_session_max": 1417,
+  "mean_daily_membership_churn": 4.584507042253521
+}

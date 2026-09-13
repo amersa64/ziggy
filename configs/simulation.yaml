@@ -1,0 +1,144 @@
+# Simulation config: identical modelling choices, separate data root so the
+# synthetic corpus can never be confused with real data.
+# Generated from configs/default.yaml by scripts/make_sim_config.py
+experiment:
+  name: exp1_simulation_control
+  start_date: '2021-01-01'
+  end_date: '2026-08-31'
+  snapshot_time_local: '20:00'
+  timezone: America/New_York
+  seed: 20260913
+paths:
+  raw: data/sim/raw
+  interim: data/sim/interim
+  processed: data/sim/processed
+  artifacts: artifacts/simulation
+http:
+  user_agent: ziggy-research (amer@zaimler.ai)
+  sec_max_requests_per_second: 8.0
+  generic_max_requests_per_second: 4.0
+  max_retries: 5
+  backoff_base_seconds: 1.5
+  timeout_seconds: 45
+  cache_enabled: true
+sec:
+  forms:
+    core:
+    - 8-K
+    - 10-Q
+    - 10-K
+    - '4'
+    extended:
+    - SC 13D
+    - SC 13G
+    - S-3
+    - S-1
+    - 424B5
+    - 6-K
+    - 13F-HR
+    - SC 13D/A
+    - SC 13G/A
+    - 8-K/A
+    - 10-K/A
+    - 10-Q/A
+  acceptance_timezone: America/New_York
+  use_form345_datasets: true
+  fetch_documents: false
+  document_budget: 60000
+market:
+  provider: csv
+  fallback_providers:
+  - yahoo
+  benchmarks:
+  - SPY
+  - QQQ
+  - IWM
+  vix_symbol: ^VIX
+  price_field: adj_close
+macro:
+  provider: fred
+  series:
+  - id: DGS10
+    lag_days: 1
+    revisable: false
+  - id: DGS2
+    lag_days: 1
+    revisable: false
+  - id: T10Y2Y
+    lag_days: 1
+    revisable: false
+  - id: BAMLH0A0HYM2
+    lag_days: 1
+    revisable: false
+  - id: VIXCLS
+    lag_days: 1
+    revisable: false
+  - id: DTWEXBGS
+    lag_days: 4
+    revisable: false
+  - id: UNRATE
+    lag_days: 21
+    revisable: true
+  - id: CPIAUCSL
+    lag_days: 21
+    revisable: true
+  - id: PAYEMS
+    lag_days: 21
+    revisable: true
+  - id: INDPRO
+    lag_days: 28
+    revisable: true
+  vintage_cadence_days: 30
+news:
+  provider: 'null'
+universe:
+  min_price: 5.0
+  min_median_dollar_volume_20d: 3000000.0
+  min_history_sessions: 250
+  max_staleness_sessions: 5
+  max_names: 1500
+  exclude_suffixes:
+  - W
+  - R
+  - U
+labels:
+  horizons:
+  - 1
+  - 5
+  - 21
+  primary_horizon: 5
+  benchmark: SPY
+  entry: next_open
+  consequential:
+    primary: cs_q90
+    cross_sectional_quantile: 0.9
+    absolute_threshold: null
+  secondary:
+    vol_expansion_ratio: 2.0
+    volume_shock_z: 3.0
+splits:
+  train_frac: 0.6
+  validation_frac: 0.2
+  holdout_frac: 0.2
+  embargo_sessions: 21
+ranking:
+  top_k:
+  - 10
+  - 20
+  - 30
+  - 50
+  - 100
+  primary_k: 20
+  models:
+  - deterministic
+  - logistic
+  - gbm
+  walk_forward:
+    enabled: true
+    refit_frequency: YS
+    min_train_sessions: 250
+evaluation:
+  bootstrap_samples: 1000
+  block_bootstrap_length: 10
+  regime_feature: vix_level
+  permutation_samples: 60
