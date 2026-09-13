@@ -373,7 +373,29 @@ def build_report(cfg) -> Path:
           "split. Both directions are tried, so these numbers are optimistically "
           "biased — read them as a ranking of signals, not as significance tests.\n")
         A(_md_table(uni.head(20), ["feature", "direction", "best_lift", "coverage"]))
-        A("\nWeakest signals in the same set:\n")
+
+        # Price and volatility features will dominate any |move| label, which
+        # buries the disclosure signals this repository exists to test. Break
+        # them out rather than letting the reader assume they were absent.
+        is_disc = uni["feature"].str.startswith(("sec_", "text_", "insider_"))
+        disc, price = uni[is_disc], uni[~is_disc]
+        if len(disc):
+            A("\n### Disclosure signals on their own\n")
+            A(f"The table above is dominated by price and volatility features, which is "
+              f"expected for a label defined on the size of a move. These are the "
+              f"disclosure, text and insider features ranked among themselves — the "
+              f"signals this layer exists to add. Best price feature for comparison: "
+              f"`{price['feature'].iloc[0]}` at {float(price['best_lift'].iloc[0]):.3f}.\n")
+            A(_md_table(disc.head(12), ["feature", "direction", "best_lift", "coverage"]))
+
+            A("\nOne caveat specific to sparse indicators: a feature that is 1 for only a "
+              "handful of names a day cannot fill a k-name shortlist on its own, so the "
+              "remaining slots are filled at random and its measured lift is diluted "
+              "towards 1. A rare, highly informative flag can therefore score below a "
+              "common, weakly informative one here. The fitted models have no such "
+              "handicap because they combine features.\n")
+
+        A("\nWeakest signals in the whole set:\n")
         A(_md_table(uni.tail(8), ["feature", "direction", "best_lift", "coverage"]))
 
     A("\n## Point-in-time and leakage audits\n")
