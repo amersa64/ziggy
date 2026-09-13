@@ -20,6 +20,15 @@ Consequential-activity definitions (all reported; ``cs_q90`` is primary):
     ``|excess move|`` above a fixed threshold calibrated on the *training* split
     only. Regime-sensitive on purpose: it answers "did we find real moves",
     not "did we find relatively large ones".
+``cs_q90_volnorm``
+    The same top-decile rule applied to ``|excess move| / the name's own expected
+    move``. This matters: an absolute-magnitude label is partly satisfiable by
+    ranking on trailing volatility, since volatile names move more by
+    definition. Normalising by each name's own trailing sigma strips that out
+    and asks the sharper question -- *which names will move far more than their
+    own volatility already implied?* It is reported alongside the primary label
+    precisely because it is the harder test.
+
 ``vol_expansion`` / ``volume_shock``
     Realized volatility or volume over the forward window relative to the name's
     own trailing behaviour. Consequence without requiring a directional move.
@@ -150,7 +159,8 @@ def add_consequence_labels(
         out["label_abs"] = (out["consequence_magnitude"] >= abs_threshold).astype("float32")
         out.loc[out["consequence_magnitude"].isna(), "label_abs"] = np.nan
 
-    # Volatility expansion relative to the name's own trailing volatility.
+    # Volatility-normalised consequence: the move measured in units of the
+    # name's own expected h-session sigma, which a volatility ranker cannot game.
     if trailing_vol is not None and "vol_21d" in trailing_vol.columns:
         # The caller may already carry vol_21d as a feature; join under a private
         # name so the merge cannot produce vol_21d_x / vol_21d_y.
@@ -162,8 +172,33 @@ def add_consequence_labels(
             ratio >= float(lab["secondary"]["vol_expansion_ratio"])
         ).astype("float32")
         out.loc[ratio.isna(), "label_vol_expansion"] = np.nan
+
+        out = add_volnorm_label(out, cfg, vol_col="_trailing_vol_21d")
         out = out.drop(columns=["_trailing_vol_21d"])
 
+    return out
+
+
+def add_volnorm_label(df: pd.DataFrame, cfg, vol_col: str = "vol_21d") -> pd.DataFrame:
+    """Volatility-normalised consequence label.
+
+    ``|excess move|`` expressed in units of the name's own expected h-session
+    sigma, then top-decile within the snapshot's cross-section. Separated out so
+    it can also be derived from an already-built candidate matrix, which already
+    carries both ``consequence_magnitude`` and the trailing volatility feature.
+    """
+    h = int(cfg.labels["primary_horizon"])
+    q = float(cfg.labels["consequential"]["cross_sectional_quantile"])
+    out = df if vol_col.startswith("_") else df.copy()
+    if vol_col not in out.columns or "consequence_magnitude" not in out.columns:
+        return out
+    expected_move = (out[vol_col] / np.sqrt(252.0) * np.sqrt(h)).replace(0, np.nan)
+    out["consequence_magnitude_volnorm"] = (
+        out["consequence_magnitude"] / expected_move
+    ).astype("float32")
+    g = out.groupby("session", observed=True)["consequence_magnitude_volnorm"]
+    out["label_cs_q90_volnorm"] = (g.rank(pct=True, na_option="keep") > q).astype("float32")
+    out.loc[out["consequence_magnitude_volnorm"].isna(), "label_cs_q90_volnorm"] = np.nan
     return out
 
 

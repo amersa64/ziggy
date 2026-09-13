@@ -42,6 +42,32 @@ The same logic drives the primary label: a *cross-sectional* top-decile
 definition keeps the base rate pinned at 10% in calm and stressed markets alike,
 so lift is comparable through time.
 
+## Why there is a volatility-normalised label as well
+
+An absolute-magnitude label has a free lunch buried in it: volatile names move
+more, by definition. A ranker that does nothing but sort on trailing sigma
+therefore scores well without knowing anything about *situations*. On a
+controlled panel with a 10x spread in per-name volatility, ranking purely on
+`vol_21d` reaches **lift 2.3** against the absolute top-decile label.
+
+So `trailing_vol` is one of the baselines — the comparison that matters is
+against it, not against `random` — and a second label is reported alongside the
+primary one:
+
+    consequence_magnitude_volnorm = |excess move| / (the name's own expected
+                                    h-session sigma, estimated at the snapshot)
+
+On the same controlled panel, ranking on `vol_21d` against this label reaches
+**lift 0.28** — worse than random. That is not a bug: estimated volatility mean
+-reverts, so the highest-sigma names systematically move *less* than their own
+recent volatility implied. The normalised label therefore asks the sharper
+question — *which names will move far more than their volatility already
+implied?* — and it actively punishes the shortcut.
+
+Reading the two together is the point. A ranker that wins on the absolute label
+and not the normalised one has found volatility. A ranker that wins on both has
+found something about situations.
+
 ## Why the deterministic scorer exists
 
 A fitted model that beats the baselines is a weaker result than it looks unless

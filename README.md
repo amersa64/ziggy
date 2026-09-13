@@ -118,6 +118,13 @@ Entry is the **open of the session after the snapshot**; exit is the close of
   set", with no regime drift in the denominator.
 - `abs` — `|excess move|` above a threshold **calibrated on the training split
   only**.
+- `cs_q90_volnorm` — the same rule applied to `|excess move| / the name's own
+  expected move`. An absolute-magnitude label is partly satisfiable by ranking on
+  trailing volatility (volatile names move more, by definition); normalising
+  removes that free lunch. On a controlled panel, ranking purely on `vol_21d`
+  scores **lift 2.3** against the absolute label and **0.28** against this one.
+  A ranker that wins on the absolute label alone has found volatility; one that
+  wins on both has found something about situations.
 - `vol_expansion`, `volume_shock` — consequence without requiring a directional
   move.
 

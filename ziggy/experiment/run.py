@@ -25,7 +25,7 @@ import pandas as pd
 
 from ziggy import audit, evaluate
 from ziggy.features.assemble import cross_sectional_rank, feature_columns
-from ziggy.labels import calibrate_abs_threshold
+from ziggy.labels import add_volnorm_label, calibrate_abs_threshold
 from ziggy.rank import baselines as bl
 from ziggy.rank.models import build_ranker, walk_forward_scores
 from ziggy.splits import make_splits
@@ -53,6 +53,11 @@ def run_experiment(cfg, matrix: pd.DataFrame | None = None) -> dict:
     n_boot = int(cfg.evaluation["bootstrap_samples"])
     block = int(cfg.evaluation["block_bootstrap_length"])
 
+    # Derivable from columns the matrix already carries, so an older candidate
+    # file does not need rebuilding to gain the volatility-normalised label.
+    if "label_cs_q90_volnorm" not in matrix.columns:
+        matrix = add_volnorm_label(matrix.copy(), cfg)
+
     feat_cols = feature_columns(matrix)
     fwd_audit = audit.forward_column_audit(feat_cols)
     if fwd_audit["status"] != "clean":
@@ -77,9 +82,9 @@ def run_experiment(cfg, matrix: pd.DataFrame | None = None) -> dict:
     matrix.loc[matrix[mag_col].isna(), "label_abs"] = np.nan
     log.info("absolute |excess| threshold from train split: %.4f", abs_thr)
 
-    scored = matrix[["session", "ticker", "split", label_col, "label_abs", mag_col]].copy()
-    if "label_vol_expansion" in matrix.columns:
-        scored["label_vol_expansion"] = matrix["label_vol_expansion"]
+    carry = [label_col, "label_abs", mag_col, "label_vol_expansion",
+             "label_cs_q90_volnorm", "consequence_magnitude_volnorm"]
+    scored = matrix[["session", "ticker", "split"] + [c for c in carry if c in matrix.columns]].copy()
 
     # -- baselines -------------------------------------------------------------
     for name in bl.BASELINES:
@@ -181,12 +186,19 @@ def run_experiment(cfg, matrix: pd.DataFrame | None = None) -> dict:
 
     # -- label-definition robustness -------------------------------------------
     robustness = []
-    for alt_label in ("label_abs", "label_vol_expansion"):
+    alt_labels = [
+        ("label_abs", mag_col),
+        # The volatility-normalised label is scored against its own magnitude so
+        # that capture and NDCG stay internally consistent.
+        ("label_cs_q90_volnorm", "consequence_magnitude_volnorm"),
+        ("label_vol_expansion", mag_col),
+    ]
+    for alt_label, alt_mag in alt_labels:
         if alt_label not in scored.columns or scored[alt_label].isna().all():
             continue
-        if sel_col not in per_session["holdout"]:
+        if alt_mag not in scored.columns or sel_col not in per_session["holdout"]:
             continue
-        ps = evaluate.per_session_metrics(holdout, sel_col, alt_label, mag_col, [primary_k], seed=seed)
+        ps = evaluate.per_session_metrics(holdout, sel_col, alt_label, alt_mag, [primary_k], seed=seed)
         if ps.empty:
             continue
         s = evaluate.summarise(ps, n_boot=n_boot, block=block, seed=seed)

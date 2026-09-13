@@ -78,3 +78,56 @@ def test_magnitude_is_absolute_excess_not_signed(cfg):
     bench = make_panel(["SPY"], sessions, seed=9)
     out = add_consequence_labels(compute_forward_returns(panel, bench, sessions, [5], "SPY"), cfg)
     assert (out["consequence_magnitude"].dropna() >= 0).all()
+
+
+def test_volnorm_label_is_not_satisfiable_by_ranking_on_volatility(cfg):
+    """The normalised label must break the 'volatile names move more' shortcut.
+
+    The panel is built with deliberately heterogeneous per-name volatility, which
+    is precisely the free lunch an absolute-magnitude label hands to a ranker
+    that simply sorts on trailing sigma.
+    """
+    from ziggy.evaluate import per_session_metrics
+    from ziggy.features.price import compute_price_features
+
+    sessions = pd.DatetimeIndex(pd.bdate_range("2021-01-04", periods=200))
+    rng = np.random.default_rng(21)
+    vols = np.linspace(0.008, 0.055, 150)          # 10x spread in daily sigma
+    rows = []
+    for i, v in enumerate(vols):
+        p = 100 * np.exp(np.cumsum(rng.normal(0, v, len(sessions))))
+        rows.append(pd.DataFrame({
+            "date": sessions, "ticker": f"T{i:03d}", "open": p, "high": p * 1.01,
+            "low": p * 0.99, "close": p, "adj_close": p, "volume": 3e6,
+        }))
+    panel = pd.concat(rows, ignore_index=True)
+    bench = make_panel(["SPY"], sessions, seed=22)
+
+    pf = compute_price_features(panel, bench)
+    lab = compute_forward_returns(panel, bench, sessions, [5], "SPY")
+    out = add_consequence_labels(lab, cfg, trailing_vol=pf[["session", "ticker", "vol_21d"]])
+    out = out.merge(pf[["session", "ticker", "vol_21d"]], on=["session", "ticker"], how="left")
+    out = out.dropna(subset=["vol_21d", "consequence_magnitude", "consequence_magnitude_volnorm"])
+
+    raw = float(per_session_metrics(out, "vol_21d", "label_cs_q90",
+                                    "consequence_magnitude", [20])["lift"].mean())
+    norm = float(per_session_metrics(out, "vol_21d", "label_cs_q90_volnorm",
+                                     "consequence_magnitude_volnorm", [20])["lift"].mean())
+    # Sorting on sigma buys a large edge on the absolute label and *less than
+    # nothing* once the label is expressed in units of that same sigma: trailing
+    # volatility mean-reverts, so the highest-sigma names tend to move less than
+    # their own recent volatility implied.
+    assert raw > 1.8, raw
+    assert norm < 0.8, norm
+
+
+def test_volnorm_label_can_be_derived_from_a_built_matrix(cfg):
+    from ziggy.labels import add_volnorm_label
+
+    df = pd.DataFrame({
+        "session": ["a"] * 20, "consequence_magnitude": np.linspace(0.01, 0.2, 20),
+        "vol_21d": np.full(20, 0.4),
+    })
+    out = add_volnorm_label(df, cfg)
+    assert out["label_cs_q90_volnorm"].sum() == 2
+    assert out["consequence_magnitude_volnorm"].iloc[-1] > out["consequence_magnitude_volnorm"].iloc[0]
