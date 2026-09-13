@@ -142,6 +142,45 @@ def _md_table(df: pd.DataFrame, cols: list[str] | None = None, floatfmt: str = "
     return "\n".join([head, sep] + rows) + "\n"
 
 
+def verdict(head: dict, hardest: pd.Series | None, k: int) -> tuple[str, str]:
+    """A rule-based answer to the question the repository exists to ask.
+
+    Stated before any result was seen, so the report cannot be talked into a
+    conclusion its own numbers do not support:
+
+    * the lift CI must exclude 1.0 -- otherwise the ranking is not
+      distinguishable from picking at random over the same universe;
+    * the margin over the *hardest* naive baseline must exclude 0 -- otherwise
+      the layer is real but not worth building, because something trivial does
+      the same job.
+    """
+    lift_lo = head.get("lift_lo", float("nan"))
+    beats_random = lift_lo > 1.0
+    if hardest is None:
+        return ("INCONCLUSIVE", "no baseline comparison was available")
+    beats_best = hardest["lo"] > 0.0 and hardest["p_value"] < 0.05
+    name = str(hardest["reference"]).replace("baseline_", "")
+
+    if beats_random and beats_best:
+        return ("YES", (
+            f"The ranking finds substantially more consequential activity than chance "
+            f"(lift@{k} CI lower bound {lift_lo:.2f} > 1.0), and it beats the hardest "
+            f"naive alternative (`{name}`) by {hardest['diff']:+.3f} lift "
+            f"[{hardest['lo']:.3f}, {hardest['hi']:.3f}], p={hardest['p_value']:.4f}. "
+            f"A shortlist of {k} is worth the reasoning budget."))
+    if beats_random and not beats_best:
+        return ("QUALIFIED NO", (
+            f"The ranking beats chance (lift@{k} CI lower bound {lift_lo:.2f} > 1.0) but is "
+            f"not distinguishable from the naive `{name}` baseline "
+            f"({hardest['diff']:+.3f} lift [{hardest['lo']:.3f}, {hardest['hi']:.3f}], "
+            f"p={hardest['p_value']:.4f}). The information layer is real but is not yet "
+            f"earning its keep: something trivial does the same job."))
+    return ("NO", (
+        f"The ranking is not distinguishable from picking at random over the same "
+        f"universe (lift@{k} CI lower bound {lift_lo:.2f}). On this data, with these "
+        f"features, the answer to the central question is no."))
+
+
 def build_report(cfg) -> Path:
     store = Store(cfg)
     art = cfg.artifacts_dir
@@ -189,6 +228,18 @@ def build_report(cfg) -> Path:
       "> produce a short ranked list of situations that contains substantially more\n"
       "> consequential future market activity than a naive baseline?\n")
 
+    hardest_row = None
+    if store.exists("artifacts", "holdout_vs_baselines"):
+        _c = store.read("artifacts", "holdout_vs_baselines")
+        _c = _c[_c["k"] == k]
+        if len(_c):
+            hardest_row = _c.loc[_c["diff"].idxmin()]
+
+    if head:
+        tag, text = verdict(head, hardest_row, k)
+        A(f"## Verdict: {tag}\n")
+        A(f"{text}\n")
+
     A("## Headline result\n")
     if head:
         base = head.get("base_rate", float("nan"))
@@ -210,16 +261,14 @@ def build_report(cfg) -> Path:
 
     # Beating `random` is table stakes. The number that decides whether this
     # layer is worth building is the margin over the best naive alternative.
-    if store.exists("artifacts", "holdout_vs_baselines"):
-        cmp_all = store.read("artifacts", "holdout_vs_baselines")
-        cmp_k = cmp_all[cmp_all["k"] == k]
-        if len(cmp_k):
-            hardest = cmp_k.loc[cmp_k["diff"].idxmin()]
+    if hardest_row is not None:
+        if True:
+            hardest = hardest_row
             name = str(hardest["reference"]).replace("baseline_", "")
             sig = "significant" if hardest["p_value"] < 0.05 else "NOT significant"
-            verdict = "clears" if hardest["diff"] > 0 else "**fails to clear**"
+            clears = "clears" if hardest["diff"] > 0 else "**fails to clear**"
             A(f"\nAgainst the **hardest** of the nine naive baselines (`{name}`), the "
-              f"selected model {verdict} it by **{hardest['diff']:+.3f}** lift "
+              f"selected model {clears} it by **{hardest['diff']:+.3f}** lift "
               f"[{hardest['lo']:.3f}, {hardest['hi']:.3f}], p={hardest['p_value']:.4f} "
               f"({sig}, paired block bootstrap over the same {int(hardest['n'])} sessions). "
               f"Beating `random` is table stakes; this is the comparison that decides "
