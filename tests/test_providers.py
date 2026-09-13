@@ -193,3 +193,113 @@ def test_fetcher_cache_round_trip(tmp_path):
     f._store("http://example.com/x", b"payload")
     assert f.cached("http://example.com/x") == b"payload"
     assert f.cached("http://example.com/missing") is None
+
+
+# --------------------------------------------------------------------------- #
+# Vendor payload parsing. These run against real bytes first in a live run, so
+# the fixtures below mirror the exact shapes the vendors return.
+# --------------------------------------------------------------------------- #
+class _CannedFetcher:
+    def __init__(self, payload: bytes, status: int = 200):
+        self.payload, self.status_code = payload, status
+        self.urls: list[str] = []
+
+    def get(self, url, **kw):
+        from ziggy.net import FetchResult
+
+        self.urls.append(url)
+        return FetchResult(url, self.status_code, self.payload, False)
+
+    def get_json(self, url, **kw):
+        import json
+
+        self.urls.append(url)
+        if self.status_code != 200 or not self.payload:
+            return None
+        return json.loads(self.payload)
+
+
+STOOQ_CSV = (
+    b"Date,Open,High,Low,Close,Volume\n"
+    b"2021-01-04,133.52,133.61,126.76,129.41,143301900\n"
+    b"2021-01-05,128.89,131.74,128.43,131.01,97664900\n"
+)
+
+YAHOO_JSON = b"""{"chart":{"result":[{"meta":{"symbol":"AAPL"},
+"timestamp":[1609770600,1609857000],
+"indicators":{"quote":[{"open":[133.52,128.89],"high":[133.61,131.74],
+"low":[126.76,128.43],"close":[129.41,131.01],"volume":[143301900,97664900]}],
+"adjclose":[{"adjclose":[128.10,129.68]}]}}],"error":null}}"""
+
+
+def test_stooq_csv_is_parsed_into_bars():
+    from ziggy.providers.market import StooqProvider
+
+    p = StooqProvider(_CannedFetcher(STOOQ_CSV))
+    out = p.get_daily(["AAPL"], "2021-01-01", "2021-01-31")
+    assert len(out) == 2
+    assert out["ticker"].tolist() == ["AAPL", "AAPL"]
+    assert out["close"].tolist() == [129.41, 131.01]
+    # stooq gives no dividend-adjusted series, so adj_close mirrors close.
+    assert out["adj_close"].tolist() == out["close"].tolist()
+    assert out["date"].iloc[0] == pd.Timestamp("2021-01-04")
+
+
+def test_stooq_rate_limit_message_is_not_parsed_as_data():
+    from ziggy.providers.market import StooqProvider
+
+    p = StooqProvider(_CannedFetcher(b"Exceeded the daily hits limit" + b" " * 40))
+    assert p.get_daily(["AAPL"], "2021-01-01", "2021-01-31").empty
+
+
+def test_stooq_empty_or_error_response_yields_no_bars():
+    from ziggy.providers.market import StooqProvider
+
+    assert StooqProvider(_CannedFetcher(b"", status=404)).get_daily(["A"], "2021-01-01", "2021-01-31").empty
+    assert StooqProvider(_CannedFetcher(b"short")).get_daily(["A"], "2021-01-01", "2021-01-31").empty
+
+
+def test_yahoo_json_is_parsed_with_adjusted_closes():
+    from ziggy.providers.market import YahooProvider
+
+    p = YahooProvider(_CannedFetcher(YAHOO_JSON))
+    out = p.get_daily(["AAPL"], "2021-01-01", "2021-01-31")
+    assert len(out) == 2
+    assert out["close"].tolist() == [129.41, 131.01]
+    # Yahoo carries a genuinely different adjusted series; it must be preserved.
+    assert out["adj_close"].tolist() == [128.10, 129.68]
+
+
+def test_yahoo_error_payload_yields_no_bars():
+    from ziggy.providers.market import YahooProvider
+
+    p = YahooProvider(_CannedFetcher(b'{"chart":{"result":null,"error":{"code":"Not Found"}}}'))
+    assert p.get_daily(["NOPE"], "2021-01-01", "2021-01-31").empty
+
+
+def test_stooq_requests_the_right_symbol_and_window():
+    from ziggy.providers.market import StooqProvider
+
+    f = _CannedFetcher(STOOQ_CSV)
+    StooqProvider(f).get_daily(["BRK.B"], "2021-01-01", "2021-12-31")
+    assert "s=brk-b.us" in f.urls[0]
+    assert "d1=20210101" in f.urls[0] and "d2=20211231" in f.urls[0]
+
+
+def test_fred_csv_is_parsed_and_dots_become_missing():
+    from ziggy.providers.macro import fetch_series
+
+    csv = b"observation_date,DGS10\n2021-01-04,0.93\n2021-01-05,.\n2021-01-06,0.95\n"
+    out = fetch_series(_CannedFetcher(csv), "DGS10")
+    assert len(out) == 3
+    assert out["value"].tolist()[0] == 0.93
+    assert pd.isna(out["value"].iloc[1]), "FRED writes '.' for a missing observation"
+
+
+def test_alfred_vintage_column_naming_is_handled():
+    from ziggy.providers.macro import fetch_vintage
+
+    # ALFRED suffixes the column with the vintage date.
+    csv = b"observation_date,UNRATE_20210601\n2021-04-01,6.1\n2021-05-01,5.8\n"
+    out = fetch_vintage(_CannedFetcher(csv), "UNRATE", "2021-06-01")
+    assert out["value"].tolist() == [6.1, 5.8]
