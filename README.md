@@ -182,8 +182,9 @@ python -m ziggy.cli check-sources          # confirm the data hosts are reachabl
 python -m ziggy.cli all                    # ingest → build → experiment → report
 ```
 
-Individual stages: `ingest`, `build`, `experiment`, `report`. Add
-`--config configs/simulation.yaml` to run against the synthetic corpus.
+Individual stages: `ingest`, `build`, `experiment`, `report`. Each caches its
+output, so a stage re-run reuses what is already on disk unless you pass
+`--force`.
 
 Set a contact address for SEC fair-access compliance:
 
@@ -223,10 +224,20 @@ Experiment 2's job — this is the desk research pack it starts from.
 
 ### The simulation control
 
-`python -m ziggy.cli simulate --config configs/simulation.yaml` generates a
-synthetic point-in-time corpus with a **known** planted relationship: a salient
-8-K raises the *scale* (not the direction) of the next few days' idiosyncratic
-move, more so for smaller and more volatile names.
+```bash
+CFG=configs/simulation.yaml
+python -m ziggy.cli simulate   --config $CFG      # synthetic corpus, no network
+python -m ziggy.cli build      --config $CFG
+python -m ziggy.cli experiment --config $CFG
+python -m ziggy.cli report     --config $CFG
+```
+
+(`all` is not used here: its first stage is `ingest`, and the whole point of the
+simulation is that it never touches the network.)
+
+The corpus has a **known** planted relationship: a salient 8-K raises the
+*scale* (not the direction) of the next few days' idiosyncratic move, more so
+for smaller and more volatile names.
 
 This is a positive control. It validates the pipeline and the evaluation harness
 end to end and distinguishes "the pipeline reports no signal" from "the pipeline
