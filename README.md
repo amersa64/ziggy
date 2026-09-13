@@ -199,6 +199,10 @@ Individual stages: `ingest`, `build`, `experiment`, `report`. Each caches its
 output, so a stage re-run reuses what is already on disk unless you pass
 `--force`.
 
+If the data hosts are behind a network policy that has not opened yet,
+`scripts/autostart_real_run.sh` polls until CONNECT succeeds and then runs the
+whole pipeline unattended, so nobody has to be watching at that moment.
+
 Set a contact address for SEC fair-access compliance:
 
 ```bash
