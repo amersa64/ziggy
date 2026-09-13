@@ -18,7 +18,9 @@ def _series_asof(panel: pd.DataFrame, sid: str, snaps: pd.DataFrame) -> pd.DataF
     sub = panel[(panel["series_id"] == sid)].dropna(subset=["value", "available_at"]).copy()
     if sub.empty:
         return pd.DataFrame({"session": snaps["session"], f"macro_{sid}": np.nan})
-    sub["available_at"] = pd.to_datetime(sub["available_at"], utc=True)
+    # merge_asof refuses to join datetime64[ns, UTC] against datetime64[us, UTC],
+    # and pandas picks the unit from whatever parsed the source. Pin both sides.
+    sub["available_at"] = pd.to_datetime(sub["available_at"], utc=True).dt.as_unit("ns")
     # Within one availability instant keep the most recent observation.
     sub = sub.sort_values(["available_at", "date"]).groupby("available_at", as_index=False).tail(1)
     sub = sub.sort_values("available_at")[["available_at", "value"]]
@@ -35,7 +37,7 @@ def _series_asof(panel: pd.DataFrame, sid: str, snaps: pd.DataFrame) -> pd.DataF
 def compute_macro_features(macro_panel: pd.DataFrame, snapshots: pd.DataFrame) -> pd.DataFrame:
     """One row per session with levels, 21-session changes and 252-session z-scores."""
     snaps = snapshots[["session", "snapshot_ts"]].copy()
-    snaps["snapshot_ts"] = pd.to_datetime(snaps["snapshot_ts"], utc=True)
+    snaps["snapshot_ts"] = pd.to_datetime(snaps["snapshot_ts"], utc=True).dt.as_unit("ns")
     out = snaps[["session"]].copy()
     if macro_panel is None or macro_panel.empty:
         log.warning("no macro panel: macro features will be absent")

@@ -10,9 +10,12 @@ import json
 import logging
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 log = logging.getLogger(__name__)
+
+NS_DTYPE = np.dtype("datetime64[ns]")
 
 
 class Store:
@@ -40,7 +43,7 @@ class Store:
         return p
 
     def read(self, layer: str, name: str, columns: list[str] | None = None) -> pd.DataFrame:
-        return pd.read_parquet(self.path(layer, name), columns=columns)
+        return normalise_datetimes(pd.read_parquet(self.path(layer, name), columns=columns))
 
     def write_json(self, obj, layer: str, name: str) -> Path:
         base = {"raw": self.cfg.raw_dir, "interim": self.cfg.interim_dir,
@@ -54,6 +57,25 @@ class Store:
         base = {"raw": self.cfg.raw_dir, "interim": self.cfg.interim_dir,
                 "processed": self.cfg.processed_dir, "artifacts": self.cfg.artifacts_dir}[layer]
         return json.loads((base / f"{name}.json").read_text())
+
+
+def normalise_datetimes(df: pd.DataFrame) -> pd.DataFrame:
+    """Force every datetime column to nanosecond resolution.
+
+    Parquet round-trips do not preserve the unit -- a column written as
+    ``datetime64[ns, UTC]`` comes back as ``datetime64[us, UTC]`` -- and pandas
+    refuses to ``merge_asof`` across units, with a message that points at the
+    merge rather than at the round-trip that caused it. Normalising on read
+    removes the whole class of problem instead of patching each join.
+    """
+    for col, dtype in df.dtypes.items():
+        if isinstance(dtype, pd.DatetimeTZDtype):
+            if dtype.unit != "ns":
+                df[col] = df[col].dt.as_unit("ns")
+        elif pd.api.types.is_datetime64_any_dtype(dtype) and dtype != NS_DTYPE:
+            # numpy datetime dtypes have no .unit attribute, so compare dtypes.
+            df[col] = df[col].astype("datetime64[ns]")
+    return df
 
 
 def assert_pit(

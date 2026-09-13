@@ -118,3 +118,41 @@ def test_the_leak_detector_fires_on_a_cheating_ranker(toy_scored):
     res = leakage_canary(toy_scored, [], "label", "mag", 20, seed=1)
     assert res["status"] == "detector_works"
     assert res["cheating_lift"] > 3.0
+
+
+def test_parquet_round_trip_does_not_change_datetime_resolution(cfg, tmp_path):
+    """Units survive the store, so joins downstream cannot fail on them."""
+    import copy
+
+    from ziggy.store import Store
+
+    c = copy.deepcopy(cfg)
+    c.raw["paths"] = {k: str(tmp_path / k) for k in ("raw", "interim", "processed", "artifacts")}
+    store = Store(c)
+
+    df = pd.DataFrame({
+        "session": pd.to_datetime(["2021-01-04", "2021-01-05"]).as_unit("ns"),
+        "available_at": pd.to_datetime(["2021-01-04 21:00", "2021-01-05 21:00"], utc=True).as_unit("ns"),
+        "x": [1.0, 2.0],
+    })
+    store.write(df, "interim", "units")
+    back = store.read("interim", "units")
+    assert back["session"].dtype == "datetime64[ns]"
+    assert back["available_at"].dt.unit == "ns"
+    # And the join that motivated this actually works.
+    pd.merge_asof(back.sort_values("available_at"), df.sort_values("available_at"),
+                  on="available_at", direction="backward")
+
+
+def test_normalise_datetimes_downcasts_microsecond_columns():
+    from ziggy.store import normalise_datetimes
+
+    df = pd.DataFrame({
+        "naive": pd.to_datetime(["2021-01-04"]).as_unit("us"),
+        "aware": pd.to_datetime(["2021-01-04"], utc=True).as_unit("us"),
+        "untouched": [1.0],
+    })
+    out = normalise_datetimes(df)
+    assert out["naive"].dtype == "datetime64[ns]"
+    assert out["aware"].dt.unit == "ns"
+    assert out["untouched"].dtype == "float64"

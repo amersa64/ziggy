@@ -69,6 +69,9 @@ def build_candidate_matrix(
     if zero_cols:
         df[zero_cols] = df[zero_cols].fillna(0.0)
 
+    # A chain of merges leaves the frame fragmented; defragment before the
+    # final assignments rather than letting pandas warn about it every build.
+    df = df.copy()
     df = df.assign(
         has_disclosure=(df.get("sec_n_filings", pd.Series(0.0, index=df.index)) > 0).astype("float32"),
         log_adv20_universe=np.log1p(df["adv20"]).astype("float32"),
