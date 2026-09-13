@@ -7,8 +7,13 @@ import sys
 import numpy as np
 import pandas as pd
 
-from ziggy.features.text import (aggregate_text_to_events, compute_text_novelty,
-                                 filing_text_stats, hashed_vector, tokenize)
+from ziggy.features.text import (
+    aggregate_text_to_events,
+    compute_text_novelty,
+    filing_text_stats,
+    hashed_vector,
+    tokenize,
+)
 
 BOILERPLATE = ("the company reported revenue growth in its core segment and "
                "continues to expect stable demand across its markets ") * 50

@@ -16,14 +16,12 @@ import logging
 
 import pandas as pd
 
-from ziggy import audit
 from ziggy.calendar import build_calendar, build_calendar_with_warmup
 from ziggy.events import attach_snapshots, build_events, map_filings_to_tickers
 from ziggy.features.assemble import build_candidate_matrix
 from ziggy.features.macro import compute_macro_features
 from ziggy.features.price import compute_breadth, compute_market_context, compute_price_features
-from ziggy.features.sec import (compute_event_features, compute_grid_sec_features,
-                                compute_insider_features)
+from ziggy.features.sec import compute_event_features, compute_grid_sec_features, compute_insider_features
 from ziggy.features.text import aggregate_text_to_events, compute_text_novelty
 from ziggy.labels import add_consequence_labels, attach_beta_adjusted, compute_forward_returns
 from ziggy.net import generic_fetcher, sec_fetcher
@@ -147,6 +145,7 @@ def ingest_documents(cfg, store: Store, filings: pd.DataFrame, force: bool = Fal
     f = sec_fetcher(cfg, namespace="sec_docs")
     texts = []
     from concurrent.futures import ThreadPoolExecutor, as_completed
+
     from tqdm import tqdm
 
     def one(row):
@@ -225,6 +224,9 @@ def build_dataset(cfg, force: bool = False) -> pd.DataFrame:
     study = cal.session_index()              # the period actually evaluated
     snaps = cal.snapshot_table()
 
+    def _in_study(df: pd.DataFrame) -> pd.DataFrame:
+        return df[df["session"].isin(study)]
+
     prices = store.read("raw", "prices")
     bench = store.read("raw", "benchmarks")
     vix = store.read("raw", "vix") if store.exists("raw", "vix") else pd.DataFrame()
@@ -274,6 +276,9 @@ def build_dataset(cfg, force: bool = False) -> pd.DataFrame:
         universe, snaps, price_feats, grid_sec, ev_feats, ins_feats, text_feats,
         mkt_ctx, breadth, macro_feats,
     )
+    # The universe is already restricted to the study window; this makes the
+    # warmup/study boundary explicit rather than implicit in the upstream join.
+    matrix = _in_study(matrix)
 
     # -- labels (the only forward-looking step) --------------------------------
     horizons = list(cfg.labels["horizons"])

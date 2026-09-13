@@ -12,7 +12,6 @@ import pandas as pd
 import pytest
 
 from ziggy.features.price import compute_breadth, compute_market_context, compute_price_features
-from tests.conftest import make_panel
 
 CUTOFFS = [-1, -20, -60]
 

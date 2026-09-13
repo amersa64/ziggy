@@ -23,7 +23,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from ziggy.providers.sec_edgar import HIGH_SALIENCE_FAMILIES, item_family
+from ziggy.providers.sec_edgar import item_family
 
 log = logging.getLogger(__name__)
 

@@ -16,7 +16,6 @@ Protocol, fixed before any result was looked at:
 """
 from __future__ import annotations
 
-import json
 import logging
 import time
 

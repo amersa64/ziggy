@@ -5,8 +5,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ziggy.audit import (acceptance_timezone_audit, feature_availability_audit,
-                         forward_column_audit, leakage_canary, shuffle_control)
+from ziggy.audit import (
+    acceptance_timezone_audit,
+    feature_availability_audit,
+    forward_column_audit,
+    leakage_canary,
+    shuffle_control,
+)
 from ziggy.events import attach_snapshots, build_events, map_filings_to_tickers
 from ziggy.providers.sec_edgar import normalise_filings
 from ziggy.store import assert_pit

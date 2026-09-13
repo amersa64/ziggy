@@ -4,8 +4,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ziggy.evaluate import (block_bootstrap_ci, compare_models, paired_block_bootstrap,
-                            per_session_metrics, permutation_null, summarise)
+from ziggy.evaluate import (
+    block_bootstrap_ci,
+    paired_block_bootstrap,
+    per_session_metrics,
+    permutation_null,
+    summarise,
+)
 
 
 @pytest.fixture

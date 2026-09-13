@@ -49,10 +49,9 @@ SALIENT_ITEMS = {"2.02", "2.01", "2.05", "2.06", "4.01", "4.02", "3.01", "1.03",
 
 
 def _sessions(cfg) -> pd.DatetimeIndex:
-    cal = build_calendar(cfg)
+    """Study window plus enough warmup to satisfy the 252-session windows."""
     start = pd.Timestamp(cfg.experiment["start_date"]) - pd.Timedelta(days=540)
-    full = build_calendar_range(cfg, start)
-    return full
+    return build_calendar_range(cfg, start)
 
 
 def build_calendar_range(cfg, start: pd.Timestamp) -> pd.DatetimeIndex:

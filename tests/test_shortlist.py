@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ziggy.shortlist import HUMAN_LABELS, _reasons, build_shortlist, format_shortlist
 from ziggy.rank.models import DETERMINISTIC_WEIGHTS
+from ziggy.shortlist import HUMAN_LABELS, _reasons, build_shortlist, format_shortlist
 from ziggy.store import Store
 
 

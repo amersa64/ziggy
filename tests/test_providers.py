@@ -1,9 +1,6 @@
 """Provider parsing, against fixtures shaped like the real payloads."""
 from __future__ import annotations
 
-import json
-
-import numpy as np
 import pandas as pd
 import pytest
 

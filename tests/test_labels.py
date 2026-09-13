@@ -3,9 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from ziggy.labels import (add_consequence_labels, calibrate_abs_threshold,
-                          compute_forward_returns)
 from tests.conftest import make_panel
+from ziggy.labels import add_consequence_labels, calibrate_abs_threshold, compute_forward_returns
 
 
 def _fixed_panel(sessions, tickers, closes):

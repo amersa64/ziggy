@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ziggy.providers.sec_edgar import (HIGH_SALIENCE_FAMILIES, extract_text,
-                                       item_family, normalise_filings)
+from ziggy.providers.sec_edgar import HIGH_SALIENCE_FAMILIES, extract_text, item_family, normalise_filings
 
 
 def _raw(**over):
