@@ -207,6 +207,23 @@ def build_report(cfg) -> Path:
           f"{k / head.get('mean_candidates', 1) * 100:.1f}% of the universe "
           f"(**{head.get('capture_lift', float('nan')):.2f}×** its share)\n")
         A(f"- selected names moved **{head.get('mag_ratio', float('nan')):.2f}×** as far as the average name\n")
+
+    # Beating `random` is table stakes. The number that decides whether this
+    # layer is worth building is the margin over the best naive alternative.
+    if store.exists("artifacts", "holdout_vs_baselines"):
+        cmp_all = store.read("artifacts", "holdout_vs_baselines")
+        cmp_k = cmp_all[cmp_all["k"] == k]
+        if len(cmp_k):
+            hardest = cmp_k.loc[cmp_k["diff"].idxmin()]
+            name = str(hardest["reference"]).replace("baseline_", "")
+            sig = "significant" if hardest["p_value"] < 0.05 else "NOT significant"
+            verdict = "clears" if hardest["diff"] > 0 else "**fails to clear**"
+            A(f"\nAgainst the **hardest** of the nine naive baselines (`{name}`), the "
+              f"selected model {verdict} it by **{hardest['diff']:+.3f}** lift "
+              f"[{hardest['lo']:.3f}, {hardest['hi']:.3f}], p={hardest['p_value']:.4f} "
+              f"({sig}, paired block bootstrap over the same {int(hardest['n'])} sessions). "
+              f"Beating `random` is table stakes; this is the comparison that decides "
+              f"whether the layer is worth building.\n")
     A("")
     if figs.get("lift_bars"):
         A(f"![lift bars]({figs['lift_bars'].name})\n")

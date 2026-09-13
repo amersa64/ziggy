@@ -227,7 +227,11 @@ def build_dataset(cfg, force: bool = False) -> pd.DataFrame:
     filings_raw = store.read("raw", "filings") if store.exists("raw", "filings") else pd.DataFrame()
     if not filings_raw.empty:
         filings = sec.normalise_filings(filings_raw, cfg.sec["acceptance_timezone"])
-        filings = map_filings_to_tickers(attach_snapshots(filings, cal), tm)
+        # Snapshots are attached on the *warmup* calendar so that disclosure from
+        # before the study window still feeds the trailing filing-intensity
+        # windows. Without this the first quarter of the study would believe
+        # every issuer had been silent for a year.
+        filings = map_filings_to_tickers(attach_snapshots(filings, full_cal), tm)
         filings = filings[filings["ticker"].isin(set(universe["ticker"]))]
         events = build_events(filings)
         store.write(filings.drop(columns=["item_list", "fam_list"], errors="ignore"), "interim", "filings_normalised")
@@ -244,7 +248,9 @@ def build_dataset(cfg, force: bool = False) -> pd.DataFrame:
     ev_feats = compute_event_features(events, filings) if len(events) else pd.DataFrame()
 
     insider = store.read("raw", "insider") if store.exists("raw", "insider") else pd.DataFrame()
-    ins_feats = compute_insider_features(insider, cal, sessions, tickers) if len(insider) else pd.DataFrame()
+    ins_feats = (
+        compute_insider_features(insider, full_cal, sessions, tickers) if len(insider) else pd.DataFrame()
+    )
 
     text_feats = pd.DataFrame()
     if store.exists("interim", "text_features") and len(filings):
