@@ -206,6 +206,14 @@ def run_experiment(cfg, matrix: pd.DataFrame | None = None) -> dict:
         robustness.append(s)
     robustness = pd.concat(robustness, ignore_index=True) if robustness else pd.DataFrame()
 
+    # -- univariate diagnostics (validation split, never the holdout) ----------
+    val_rows = scored[scored["split"] == "validation"].join(
+        matrix.loc[matrix["split"] == "validation", feat_cols]
+    )
+    univariate = evaluate.univariate_lift(
+        val_rows, feat_cols, label_col, mag_col, primary_k, seed=seed
+    )
+
     # -- audits ----------------------------------------------------------------
     filings = store.read("interim", "filings_normalised") if store.exists("interim", "filings_normalised") else pd.DataFrame()
     events = store.read("interim", "events") if store.exists("interim", "events") else pd.DataFrame()
@@ -230,6 +238,8 @@ def run_experiment(cfg, matrix: pd.DataFrame | None = None) -> dict:
         store.write(by_year, "artifacts", "by_year")
     if len(robustness):
         store.write(robustness, "artifacts", "label_robustness")
+    if len(univariate):
+        store.write(univariate, "artifacts", "univariate_lift")
     for name, imp in importances.items():
         store.write(imp, "artifacts", f"importances_{name}")
     store.write(scored, "processed", "scored")

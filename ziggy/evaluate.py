@@ -253,6 +253,59 @@ def permutation_null(
     }
 
 
+def univariate_lift(
+    df: pd.DataFrame,
+    feature_cols: list[str],
+    label_col: str,
+    magnitude_col: str,
+    k: int,
+    seed: int = 0,
+    min_coverage: float = 0.02,
+) -> pd.DataFrame:
+    """Lift of ranking on each single feature, in its better direction.
+
+    Diagnostic, not a model: it says which individual signals carry information
+    about consequential activity, which is exactly what the downstream reasoning
+    agent needs to know when it decides what evidence to ask for. Three
+    orientations are tried per feature (high, low, and distance-from-median), so
+    the reported lift is optimistically biased -- it is read as a ranking of
+    features, never as a significance test.
+    """
+    base = df[["session", label_col, magnitude_col]].dropna()
+    if base.empty:
+        return pd.DataFrame()
+    idx = base.index
+    rows = []
+    for c in feature_cols:
+        col = df.loc[idx, c]
+        coverage = float(col.notna().mean())
+        if coverage < min_coverage or col.nunique(dropna=True) < 3:
+            continue
+        filled = col.fillna(col.median())
+        d = base.assign(_f=filled)
+
+        def lift_of(values) -> float:
+            d["_f"] = values
+            return float(
+                per_session_metrics(d, "_f", label_col, magnitude_col, [k], seed=seed)["lift"].mean()
+            )
+
+        hi = lift_of(filled)
+        lo = lift_of(-filled)
+        # The label is an *absolute* move, so a feature can matter through its
+        # extremeness rather than its sign -- both tails of a valuation or flow
+        # measure can precede a large move. Ranking on within-day distance from
+        # the median catches that, and sign-directional features lose nothing.
+        centred = filled.groupby(base["session"]).transform(lambda x: (x - x.median()).abs())
+        ex = lift_of(centred)
+        scores = {"high": hi, "low": lo, "extreme": ex}
+        direction = max(scores, key=scores.get)
+        rows.append({"feature": c, "best_lift": scores[direction], "direction": direction,
+                     "lift_high": hi, "lift_low": lo, "lift_extreme": ex, "coverage": coverage})
+    out = pd.DataFrame(rows)
+    return out.sort_values("best_lift", ascending=False).reset_index(drop=True) if len(out) else out
+
+
 def by_regime(
     per_session: pd.DataFrame, regime: pd.DataFrame, k: int, column: str = "vix_level"
 ) -> pd.DataFrame:

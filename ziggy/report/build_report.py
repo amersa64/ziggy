@@ -260,6 +260,16 @@ def build_report(cfg) -> Path:
         A("\n## What the ranker is using\n")
         A(f"![importances]({figs['importances'].name})\n")
 
+    if store.exists("artifacts", "univariate_lift"):
+        uni = store.read("artifacts", "univariate_lift")
+        A("\n## Which single signals carry information\n")
+        A(f"Lift@{k} from ranking on one feature alone, measured on the **validation** "
+          "split. Both directions are tried, so these numbers are optimistically "
+          "biased — read them as a ranking of signals, not as significance tests.\n")
+        A(_md_table(uni.head(20), ["feature", "direction", "best_lift", "coverage"]))
+        A("\nWeakest signals in the same set:\n")
+        A(_md_table(uni.tail(8), ["feature", "direction", "best_lift", "coverage"]))
+
     A("\n## Point-in-time and leakage audits\n")
     for name, res in audits.items():
         if not isinstance(res, dict):
