@@ -15,7 +15,9 @@ probe() {
 }
 
 echo "$(date -u +%H:%M:%S) waiting for data hosts" >> "$LOG"
-for _ in $(seq 1 2000); do
+# ~7 days of polling: the network policy has not opened in over a day, and a
+# watcher that expires between check-ins is worse than no watcher.
+for _ in $(seq 1 10000); do
   if [ "$(probe)" = "200" ]; then
     echo "$(date -u +%H:%M:%S) HOSTS OPEN - starting real ingestion" >> "$LOG"
     python3 -u -m ziggy.cli all >> "$LOG" 2>&1 && echo "REAL_RUN_DONE" >> "$LOG" \
